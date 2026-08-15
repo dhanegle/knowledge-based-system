@@ -9,5 +9,8 @@ wheels/
 # Virtual environments
 .venv
 
+# Environment files (contain secrets)
+.env
+
 # Claude Code session data
 .claude/
