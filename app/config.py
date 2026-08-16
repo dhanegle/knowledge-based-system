@@ -22,5 +22,16 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
+    @property
+    def llm_configured(self) -> bool:
+        """Whether all settings required by the OpenAI-compatible client exist."""
+        return all(
+            (
+                self.llm_base_url.strip(),
+                self.llm_api_key.strip(),
+                self.llm_model.strip(),
+            )
+        )
+
 
 settings = Settings()

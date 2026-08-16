@@ -4,13 +4,20 @@ from fastapi import FastAPI
 
 from app.api import chat, health
 from app.config import settings
+from app.llm.base import get_llm_client
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 启动时执行：未来在这里加载 embedding 模型、连接 Qdrant/Postgres 等
-    yield
-    # 关闭时执行：清理资源
+    # 在应用级别复用 LLM 客户端，避免每个请求都创建新的 HTTP 连接池。
+    client = get_llm_client()
+    app.state.llm_client = client
+    try:
+        # 未来可以在这里加载 embedding 模型、连接 Qdrant/Postgres 等。
+        yield
+    finally:
+        await client.aclose()
+        app.state.llm_client = None
 
 
 def create_app() -> FastAPI:

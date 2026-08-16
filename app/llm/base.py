@@ -33,6 +33,10 @@ class LLMClient(Protocol):
         """流式生成回答，逐块 yield 文本片段。"""
         ...
 
+    async def aclose(self) -> None:
+        """释放客户端持有的网络资源。"""
+        ...
+
 
 class StubLLMClient:
     """占位实现：不调用任何外部 API，仅用于跑通 SSE 链路。"""
@@ -47,6 +51,10 @@ class StubLLMClient:
         yield f"[知源·占位回答] 你问了：「{question}」\n\n"
         yield "（当前是 StubLLMClient 占位实现，未接入真实 LLM。"
         yield "请在 .env 中配置 ZHIYUAN_LLM_BASE_URL 和 ZHIYUAN_LLM_API_KEY 后重启。）"
+
+    async def aclose(self) -> None:
+        """Stub 没有外部资源，保留统一的客户端生命周期接口。"""
+        return
 
 
 class OpenAICompatibleLLMClient:
@@ -75,6 +83,9 @@ class OpenAICompatibleLLMClient:
         )
         self._model = model
         self._max_tokens = max_tokens
+
+    async def aclose(self) -> None:
+        await self._client.close()
 
     async def stream(
         self,
@@ -112,7 +123,7 @@ def get_llm_client() -> LLMClient:
     """
     from app.config import settings
 
-    if settings.llm_base_url and settings.llm_api_key and settings.llm_model:
+    if settings.llm_configured:
         return OpenAICompatibleLLMClient(
             base_url=settings.llm_base_url,
             api_key=settings.llm_api_key,

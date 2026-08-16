@@ -10,5 +10,5 @@ async def health():
     return {
         "status": "ok",
         "app": settings.app_name,
-        "llm_configured": bool(settings.llm_api_key),
+        "llm_configured": settings.llm_configured,
     }
