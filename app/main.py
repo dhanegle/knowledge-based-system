@@ -5,19 +5,29 @@ from fastapi import FastAPI
 from app.api import chat, documents, health
 from app.config import settings
 from app.llm.base import get_llm_client
+from app.rag.rag_service import RAGService
+from app.storage.qdrant import get_qdrant_store
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 在应用级别复用 LLM 客户端，避免每个请求都创建新的 HTTP 连接池。
     client = get_llm_client()
     app.state.llm_client = client
+    qdrant = get_qdrant_store()
     try:
-        # 未来可以在这里加载 embedding 模型、连接 Qdrant/Postgres 等。
+        await qdrant.ensure_collection()
+        rag_service = RAGService(llm_client=client)
+    except Exception:
+        rag_service = None
+    app.state.rag_service = rag_service
+    try:
         yield
     finally:
         await client.aclose()
+        import app.storage.qdrant as _qdrant_mod
+        _qdrant_mod._store = None
         app.state.llm_client = None
+        app.state.rag_service = None
 
 
 def create_app() -> FastAPI:
