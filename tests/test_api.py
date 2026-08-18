@@ -29,11 +29,36 @@ class FailingLLMClient:
         return None
 
 
+def _mock_qdrant(monkeypatch):
+    """Mock Qdrant store to avoid real connections in tests."""
+    class FakeQdrant:
+        async def ensure_collection(self):
+            pass
+
+        async def search(self, query_vector, top_k=20, doc_ids=None):
+            return []
+
+        async def close(self):
+            pass
+
+    fake = FakeQdrant()
+    import app.storage.qdrant as qdrant_mod
+    monkeypatch.setattr(qdrant_mod, "_store", fake)
+
+    # Mock embedding service to avoid real API calls
+    from app.embedding.base import StubEmbeddingService
+    import app.embedding.base as emb_mod
+    monkeypatch.setattr(emb_mod, "_embedding_service", StubEmbeddingService(dim=768))
+
+    return fake
+
+
 def test_health_requires_all_llm_settings(monkeypatch):
     monkeypatch.setattr(main, "get_llm_client", lambda: StubLLMClient())
     monkeypatch.setattr(settings, "llm_base_url", "")
     monkeypatch.setattr(settings, "llm_api_key", "configured")
     monkeypatch.setattr(settings, "llm_model", "")
+    _mock_qdrant(monkeypatch)
 
     with TestClient(main.create_app()) as client:
         response = client.get("/health")
@@ -47,6 +72,7 @@ def test_health_reports_configured_when_all_llm_settings_exist(monkeypatch):
     monkeypatch.setattr(settings, "llm_base_url", "https://example.test/v1")
     monkeypatch.setattr(settings, "llm_api_key", "configured")
     monkeypatch.setattr(settings, "llm_model", "test-model")
+    _mock_qdrant(monkeypatch)
 
     with TestClient(main.create_app()) as client:
         response = client.get("/health")
@@ -58,6 +84,7 @@ def test_health_reports_configured_when_all_llm_settings_exist(monkeypatch):
 def test_ask_streams_tokens_and_closes_shared_client(monkeypatch):
     llm = RecordingLLMClient()
     monkeypatch.setattr(main, "get_llm_client", lambda: llm)
+    _mock_qdrant(monkeypatch)
 
     with TestClient(main.create_app()) as client:
         response = client.get("/ask", params={"q": "你好"})
@@ -72,6 +99,7 @@ def test_ask_streams_tokens_and_closes_shared_client(monkeypatch):
 
 def test_ask_emits_error_event_without_upstream_details(monkeypatch):
     monkeypatch.setattr(main, "get_llm_client", lambda: FailingLLMClient())
+    _mock_qdrant(monkeypatch)
 
     with TestClient(main.create_app()) as client:
         response = client.get("/ask", params={"q": "hello"})
@@ -84,6 +112,7 @@ def test_ask_emits_error_event_without_upstream_details(monkeypatch):
 
 def test_ask_requires_question(monkeypatch):
     monkeypatch.setattr(main, "get_llm_client", lambda: StubLLMClient())
+    _mock_qdrant(monkeypatch)
 
     with TestClient(main.create_app()) as client:
         response = client.get("/ask")

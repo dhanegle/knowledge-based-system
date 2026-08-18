@@ -103,9 +103,9 @@ class QdrantStore:
                 FieldCondition(key="doc_id", match=MatchValue(any=doc_ids))
             ])
 
-        results = await self._client.search(
+        results = await self._client.query_points(
             collection_name=self._collection,
-            query_vector=query_vector,
+            query=query_vector,
             limit=top_k,
             query_filter=query_filter,
         )
@@ -119,7 +119,7 @@ class QdrantStore:
                 page=hit.payload.get("page", 0),
                 chunk_index=hit.payload.get("chunk_index", 0),
             )
-            for hit in results
+            for hit in results.points
         ]
 
     async def delete_by_doc_id(self, doc_id: str) -> None:
