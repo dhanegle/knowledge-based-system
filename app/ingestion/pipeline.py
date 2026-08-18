@@ -40,12 +40,26 @@ class IngestionPipeline:
         self._qdrant = get_qdrant_store()
 
     async def ingest_file(self, filepath: str) -> IngestionResult:
-        """摄入单个文件：解析 → 分块 → 向量化 → 入库。"""
+        """摄入单个文件：解析 → 分块 → 向量化 → 入库。
+
+        如果同名同 checksum 的文档已存在，跳过重复摄入。
+        """
         import pathlib
         path = pathlib.Path(filepath)
         doc_id = str(uuid.uuid4())
         file_size = path.stat().st_size
         checksum = self._checksum(path)
+
+        # 0. 检查是否已有相同 checksum 的文档（去重）
+        existing = await self._find_by_checksum(checksum)
+        if existing is not None:
+            logger.info("跳过重复摄入: %s (doc_id=%s)", path.name, existing.id)
+            return IngestionResult(
+                doc_id=existing.id,
+                filename=existing.filename,
+                chunk_count=existing.chunk_count,
+                status=DocumentStatus(existing.status),
+            )
 
         # 1. 创建文档记录
         async with get_session() as session:
@@ -117,7 +131,7 @@ class IngestionPipeline:
 
     async def delete_document(self, doc_id: str) -> bool:
         """删除文档：先删 Qdrant 中的 chunks，再删 Postgres 记录。"""
-        from sqlalchemy import select, delete as sa_delete
+        from sqlalchemy import delete as sa_delete
 
         # 先删 Qdrant
         await self._qdrant.delete_by_doc_id(doc_id)
@@ -129,6 +143,32 @@ class IngestionPipeline:
             )
             await session.commit()
             return result.rowcount > 0
+
+    async def reingest(self, doc_id: str, filepath: str) -> IngestionResult:
+        """重新摄入已有文档：先删旧 chunks，再重新摄入。
+
+        用于文档内容变更后更新向量索引。
+        """
+        # 先删旧 chunks
+        await self._qdrant.delete_by_doc_id(doc_id)
+
+        # 删旧 Postgres 记录
+        from sqlalchemy import delete as sa_delete
+        async with get_session() as session:
+            await session.execute(sa_delete(Document).where(Document.id == doc_id))
+            await session.commit()
+
+        # 重新摄入（新 doc_id）
+        return await self.ingest_file(filepath)
+
+    async def _find_by_checksum(self, checksum: str) -> Document | None:
+        """按 checksum 查找已存在的文档记录。"""
+        from sqlalchemy import select
+        async with get_session() as session:
+            result = await session.execute(
+                select(Document).where(Document.checksum == checksum)
+            )
+            return result.scalar_one_or_none()
 
     def _checksum(self, path) -> str:
         h = hashlib.sha256()
