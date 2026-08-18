@@ -29,7 +29,7 @@ async def init_db() -> None:
     await engine.dispose()
 
 
-async def get_session() -> AsyncSession:
+def get_session() -> AsyncSession:
     """获取异步数据库会话。"""
     sessionmaker = get_engine()
     return sessionmaker()
