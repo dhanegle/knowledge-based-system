@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     chunk_size: int = 500
     chunk_overlap: int = 50
 
+    # 可观测性
+    langfuse_base_url: str = ""
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+
     host: str = "0.0.0.0"
     port: int = 8000
 
