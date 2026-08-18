@@ -6,9 +6,10 @@ import logging
 import pathlib
 import tempfile
 
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File
 from sqlalchemy import select
 
+from app.errors import DocumentNotFoundError, DuplicateDocumentError
 from app.ingestion.parser import SUPPORTED_EXTENSIONS
 from app.ingestion.pipeline import get_pipeline
 from app.storage.postgres import Document
@@ -26,13 +27,12 @@ async def upload_document(file: UploadFile = File(...)):
     相同 checksum 的文件会自动跳过重复摄入。
     """
     if not file.filename:
-        raise HTTPException(status_code=400, detail="文件名不能为空")
+        raise DuplicateDocumentError("文件名不能为空")
 
     ext = pathlib.Path(file.filename).suffix.lower()
     if ext not in SUPPORTED_EXTENSIONS:
-        raise HTTPException(
-            status_code=415,
-            detail=f"不支持的文件格式: {ext}（支持: {', '.join(sorted(SUPPORTED_EXTENSIONS))}）",
+        raise DocumentNotFoundError(
+            f"不支持的文件格式: {ext}（支持: {', '.join(sorted(SUPPORTED_EXTENSIONS))}）"
         )
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
@@ -82,7 +82,7 @@ async def get_document(doc_id: str):
         result = await session.execute(select(Document).where(Document.id == doc_id))
         doc = result.scalar_one_or_none()
         if doc is None:
-            raise HTTPException(status_code=404, detail="文档不存在")
+            raise DocumentNotFoundError("文档不存在")
         return {
             "id": doc.id,
             "filename": doc.filename,
@@ -103,7 +103,7 @@ async def delete_document(doc_id: str):
     pipeline = get_pipeline()
     deleted = await pipeline.delete_document(doc_id)
     if not deleted:
-        raise HTTPException(status_code=404, detail="文档不存在")
+        raise DocumentNotFoundError("文档不存在")
     return {"deleted": True, "doc_id": doc_id}
 
 
@@ -114,11 +114,11 @@ async def reingest_document(doc_id: str, file: UploadFile = File(...)):
     用于文档内容变更后更新向量索引。
     """
     if not file.filename:
-        raise HTTPException(status_code=400, detail="文件名不能为空")
+        raise DuplicateDocumentError("文件名不能为空")
 
     ext = pathlib.Path(file.filename).suffix.lower()
     if ext not in SUPPORTED_EXTENSIONS:
-        raise HTTPException(status_code=415, detail=f"不支持的文件格式: {ext}")
+        raise DocumentNotFoundError(f"不支持的文件格式: {ext}")
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
         content = await file.read()
