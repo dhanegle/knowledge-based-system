@@ -5,16 +5,17 @@
 
 from __future__ import annotations
 
-import logging
+import structlog
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 from app.llm.base import LLMClient, get_llm_client
+from app.observability.langfuse import trace_span
 from app.rag.prompt_builder import SYSTEM_PROMPT, build_context, build_user_message
 from app.retrieval.reranker import RerankedChunk, get_reranker
 from app.retrieval.vector_search import VectorSearcher
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger("app.rag")
 
 
 @dataclass
@@ -36,14 +37,16 @@ class RAGService:
         self._searcher = searcher or VectorSearcher()
         self._reranker = reranker or get_reranker()
 
+    @trace_span("rag_ask")
     async def ask(self, question: str, doc_ids: list[str] | None = None) -> tuple[AsyncIterator[str], list[dict]]:
         """执行 RAG 查询，返回 (流式回答迭代器, 引用来源列表)。"""
         # 1. 向量检索
         chunks = await self._searcher.search(question, doc_ids=doc_ids)
 
         if not chunks:
-            logger.info("RAG: 无检索结果，直接回答")
+            logger.info("rag_no_results", question_preview=question[:50])
 
+            @trace_span("rag_generate")
             async def no_context_stream():
                 async for token in self._llm.stream(question, system_prompt=SYSTEM_PROMPT):
                     yield token
@@ -70,7 +73,7 @@ class RAGService:
             for c in reranked
         ]
 
-        logger.info("RAG: %d 检索 → %d 重排 → 生成", len(chunks), len(reranked))
+        logger.info("rag_pipeline", retrieved=len(chunks), reranked=len(reranked))
 
         # 5. 流式生成
         stream = self._llm.stream(user_message, system_prompt=SYSTEM_PROMPT)
