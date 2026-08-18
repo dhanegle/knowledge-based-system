@@ -2,13 +2,15 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import chat, documents, health
+from app.api import auth, chat, documents, health
 from app.config import settings
+from app.errors import register_exception_handlers
 from app.llm.base import get_llm_client
 from app.observability.logging import setup_logging
 from app.observability.middleware import RequestTraceMiddleware
 from app.rag.rag_service import RAGService
 from app.storage.qdrant import get_qdrant_store
+from app.storage.session import init_db
 
 
 @asynccontextmanager
@@ -23,6 +25,10 @@ async def lifespan(app: FastAPI):
     except Exception:
         rag_service = None
     app.state.rag_service = rag_service
+    try:
+        await init_db()
+    except Exception:
+        pass
     try:
         yield
     finally:
@@ -41,7 +47,9 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.add_middleware(RequestTraceMiddleware)
+    register_exception_handlers(app)
     app.include_router(health.router, tags=["health"])
+    app.include_router(auth.router)
     app.include_router(chat.router, tags=["chat"])
     app.include_router(documents.router, tags=["documents"])
     return app

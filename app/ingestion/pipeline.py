@@ -11,6 +11,7 @@ import uuid
 from dataclasses import dataclass
 
 from app.embedding.base import get_embedding_service
+from app.errors import DocumentParseError, EmbeddingError, QdrantError
 from app.ingestion.chunker import TextChunker
 from app.ingestion.parser import DocumentParser, ParsedDocument
 from app.storage.postgres import Document, DocumentStatus
@@ -76,7 +77,10 @@ class IngestionPipeline:
 
         try:
             # 2. 解析
-            parsed: ParsedDocument = self._parser.parse(path)
+            try:
+                parsed: ParsedDocument = self._parser.parse(path)
+            except Exception as e:
+                raise DocumentParseError(f"文档解析失败: {e}") from e
 
             # 3. 更新状态 → chunking
             await self._update_status(doc_id, DocumentStatus.chunking)
@@ -84,26 +88,34 @@ class IngestionPipeline:
             # 4. 分块
             chunks = self._chunker.chunk_pages(parsed.pages, filename=parsed.filename)
             if not chunks:
-                raise ValueError("文档解析后无有效文本内容")
+                raise DocumentParseError("文档解析后无有效文本内容")
 
             # 5. 更新状态 → embedding
             await self._update_status(doc_id, DocumentStatus.embedding)
 
             # 6. 批量向量化
             texts = [c.text for c in chunks]
-            vectors = await self._embedder.embed(texts)
+            try:
+                vectors = await self._embedder.embed(texts)
+            except Exception as e:
+                raise EmbeddingError(f"向量化失败: {e}") from e
 
             # 7. 写入 Qdrant
-            await self._qdrant.ensure_collection()
-            chunks_with_vectors = [
-                (c.text, vec, c.page_index + 1)
-                for c, vec in zip(chunks, vectors)
-            ]
-            count = await self._qdrant.upsert_chunks(
-                doc_id=doc_id,
-                filename=parsed.filename,
-                chunks=chunks_with_vectors,
-            )
+            try:
+                await self._qdrant.ensure_collection()
+                chunks_with_vectors = [
+                    (c.text, vec, c.page_index + 1)
+                    for c, vec in zip(chunks, vectors)
+                ]
+                count = await self._qdrant.upsert_chunks(
+                    doc_id=doc_id,
+                    filename=parsed.filename,
+                    chunks=chunks_with_vectors,
+                )
+            except QdrantError:
+                raise
+            except Exception as e:
+                raise QdrantError(f"向量库写入失败: {e}") from e
 
             # 8. 更新文档记录 → indexed
             await self._update_status(

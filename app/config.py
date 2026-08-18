@@ -41,6 +41,15 @@ class Settings(BaseSettings):
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
 
+    # 鉴权
+    jwt_secret: str = "zhiyuan-dev-secret-change-in-production"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 1440  # 24 小时
+
+    # 缓存
+    redis_url: str = "redis://localhost:6379/0"
+    cache_ttl: int = 3600  # 1 小时
+
     host: str = "0.0.0.0"
     port: int = 8000
 
