@@ -14,10 +14,15 @@ async function request(path, options = {}) {
     headers['Content-Type'] = 'application/json'
     options.body = JSON.stringify(options.body)
   }
-  const resp = await fetch(`${API_BASE}${path}`, { ...options, headers })
+  let resp
+  try {
+    resp = await fetch(`${API_BASE}${path}`, { ...options, headers })
+  } catch (e) {
+    throw { status: 0, detail: '无法连接到服务器，请检查后端是否运行' }
+  }
   const data = await resp.json().catch(() => null)
   if (!resp.ok) {
-    throw { status: resp.status, ...data }
+    throw { status: resp.status, ...(data || { detail: `请求失败 (${resp.status})` }) }
   }
   return data
 }
@@ -111,5 +116,29 @@ export async function updateConversation(id, title) {
   return request(`/conversations/${id}`, {
     method: 'PATCH',
     body: { title },
+  })
+}
+
+// ---- 用户管理（管理员） ----
+
+export async function listUsers() {
+  return request('/admin/users')
+}
+
+export async function deleteUser(userId) {
+  return request(`/admin/users/${userId}`, { method: 'DELETE' })
+}
+
+export async function updateUserRole(userId, role) {
+  return request(`/admin/users/${userId}/role`, {
+    method: 'PATCH',
+    body: { role },
+  })
+}
+
+export async function resetUserPassword(userId, newPassword) {
+  return request(`/admin/users/${userId}/reset-password`, {
+    method: 'POST',
+    body: { new_password: newPassword },
   })
 }

@@ -41,8 +41,8 @@ async def ask(
     if conversation_id:
         await _verify_conversation_owner(conversation_id, current_user.id)
 
-    # 1. 查缓存
-    cached = await get_cached_answer(q, doc_id_list)
+    # 1. 查缓存（缓存键含 user_id，避免不同用户串通）
+    cached = await get_cached_answer(q, doc_id_list, user_id=current_user.id)
     if cached is not None:
         conv_id = await _ensure_conversation(conversation_id, current_user.id, q)
         await _save_messages(conv_id, q, cached.get("answer", ""), cached.get("sources"))
@@ -120,6 +120,7 @@ async def ask(
                     q,
                     {"answer": full_answer, "sources": sources},
                     doc_ids=doc_id_list,
+                    user_id=current_user.id,
                 )
                 await _save_messages(conv_id, q, full_answer, sources)
 

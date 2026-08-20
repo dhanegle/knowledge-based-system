@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import auth, chat, conversations, documents, health
+from app.api import admin, auth, chat, conversations, documents, health
 from app.config import settings
 from app.errors import register_exception_handlers
 from app.llm.base import get_llm_client
@@ -63,6 +63,7 @@ def create_app() -> FastAPI:
     app.include_router(chat.router, tags=["chat"])
     app.include_router(conversations.router)
     app.include_router(documents.router, tags=["documents"])
+    app.include_router(admin.router)
     return app
 
 

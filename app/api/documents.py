@@ -9,7 +9,7 @@ import tempfile
 from fastapi import APIRouter, Depends, UploadFile, File
 from sqlalchemy import select
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_admin, get_current_user
 from app.auth.models import User
 from app.cache import invalidate_doc_cache
 from app.errors import DocumentNotFoundError, DocumentParseError
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 @router.post("/documents/upload")
 async def upload_document(
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
 ):
     """上传文档并摄入。
 
@@ -109,7 +109,7 @@ async def get_document(
 @router.delete("/documents/{doc_id}")
 async def delete_document(
     doc_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
 ):
     """删除文档及其所有 chunks（先删 Qdrant，再删 Postgres，再清缓存）。"""
     pipeline = get_pipeline()
@@ -125,7 +125,7 @@ async def delete_document(
 async def reingest_document(
     doc_id: str,
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
 ):
     """重新摄入文档：删除旧 chunks 后用新文件重新摄入。
 

@@ -36,30 +36,26 @@
 
         <!-- AI 消息 -->
         <div v-else class="flex justify-start">
-          <div class="max-w-2xl w-full">
-            <!-- 引用来源 -->
-            <div v-if="msg.sources && msg.sources.length" class="mb-2 flex flex-wrap gap-2">
-              <span
-                v-for="(src, si) in msg.sources"
-                :key="si"
-                class="inline-flex items-center gap-1 px-2.5 py-1 bg-zhiyuan-50 text-zhiyuan-700 text-xs rounded-lg border border-zhiyuan-200"
-              >
-                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-                {{ src.filename }}{{ src.page ? ` · 第${src.page}页` : '' }}
-                <span class="text-zhiyuan-400">({{ src.score }})</span>
-              </span>
-            </div>
-
+          <div class="max-w-2xl">
             <!-- 回答内容 -->
-            <div class="px-4 py-3 bg-white border border-gray-200 rounded-2xl rounded-bl-sm">
-              <p class="whitespace-pre-wrap text-gray-800">{{ msg.content || '...' }}</p>
-            </div>
-
-            <!-- 错误 -->
-            <div v-if="msg.error" class="mt-1 text-sm text-red-500">
-              {{ msg.error }}
+            <div class="inline-block px-4 py-3 bg-white border border-gray-200 rounded-2xl rounded-bl-sm">
+              <!-- 思考动画 -->
+              <div v-if="store.streaming && !msg.content && !msg.error" class="flex items-center gap-2 py-1">
+                <div class="flex gap-1">
+                  <span class="w-2 h-2 bg-zhiyuan-400 rounded-full animate-bounce" style="animation-delay: 0ms"></span>
+                  <span class="w-2 h-2 bg-zhiyuan-400 rounded-full animate-bounce" style="animation-delay: 150ms"></span>
+                  <span class="w-2 h-2 bg-zhiyuan-400 rounded-full animate-bounce" style="animation-delay: 300ms"></span>
+                </div>
+                <span class="text-sm text-gray-400">思考中...</span>
+              </div>
+              <!-- Markdown 渲染的回答 -->
+              <div
+                v-else-if="msg.content"
+                class="prose-chat text-gray-800"
+              >
+                <span v-html="renderMarkdown(msg.content)"></span><span v-if="store.streaming && i === store.messages.length - 1" class="inline-block w-0.5 h-4 bg-zhiyuan-500 animate-pulse align-middle ml-0.5"></span>
+              </div>
+              <p v-else-if="msg.error" class="text-red-500 text-sm">{{ msg.error }}</p>
             </div>
           </div>
         </div>
@@ -72,16 +68,16 @@
         <input
           v-model="question"
           type="text"
-          :disabled="streaming"
+          :disabled="store.streaming"
           placeholder="输入你的问题..."
           class="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-zhiyuan-500 focus:border-transparent outline-none transition disabled:bg-gray-100"
         />
         <button
           type="submit"
-          :disabled="streaming || !question.trim()"
+          :disabled="store.streaming || !question.trim()"
           class="px-6 py-3 bg-zhiyuan-600 text-white rounded-xl hover:bg-zhiyuan-700 disabled:opacity-50 transition font-medium"
         >
-          {{ streaming ? '回答中...' : '发送' }}
+          {{ store.streaming ? '回答中...' : '发送' }}
         </button>
       </form>
     </div>
@@ -89,14 +85,27 @@
 </template>
 
 <script setup>
-import { ref, nextTick, reactive, onMounted, watch } from 'vue'
-import { getToken } from '../api'
+import { ref, nextTick, onMounted, watch } from 'vue'
+import { marked } from 'marked'
 import { useConversationStore } from '../stores/conversations'
 
 const store = useConversationStore()
 const question = ref('')
-const streaming = ref(false)
 const messagesEl = ref(null)
+
+// 配置 marked：关闭 mangle，简化输出
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+})
+
+function renderMarkdown(text) {
+  try {
+    return marked.parse(text)
+  } catch {
+    return text
+  }
+}
 
 function scrollToBottom() {
   nextTick(() => {
@@ -107,12 +116,35 @@ function scrollToBottom() {
 }
 
 onMounted(async () => {
-  await store.fetchConversations()
-  if (store.conversations.length > 0) {
+  // 只在 store 为空时才加载对话列表（首次进入）
+  // 切页面回来时不重新加载，避免覆盖正在流式 / 已加载的消息
+  if (store.conversations.length === 0) {
+    await store.fetchConversations()
+  }
+  // 仅当没有选中对话且不在流式中时，才选第一个对话
+  if (!store.currentId && !store.streaming && store.conversations.length > 0) {
     await store.selectConversation(store.conversations[0].id)
   }
   scrollToBottom()
 })
+
+// 流式期间消息增长时自动滚到底部
+watch(() => store.messages.length, () => {
+  scrollToBottom()
+})
+watch(
+  () => store.messages.at(-1)?.content,
+  () => {
+    if (store.streaming) scrollToBottom()
+  }
+)
+// 切换对话时滚到底部
+watch(
+  () => store.currentId,
+  () => {
+    scrollToBottom()
+  }
+)
 
 async function handleNewConversation() {
   await store.createNew()
@@ -121,67 +153,84 @@ async function handleNewConversation() {
 
 async function handleAsk() {
   const q = question.value.trim()
-  if (!q || streaming.value) return
-
-  store.messages.push({ role: 'user', content: q })
+  if (!q || store.streaming) return
   question.value = ''
   scrollToBottom()
-
-  streaming.value = true
-  const aiMsg = reactive({ role: 'assistant', content: '', sources: [], error: '' })
-  store.messages.push(aiMsg)
-  scrollToBottom()
-
-  try {
-    const token = getToken()
-    const convParam = store.currentId ? `&conversation_id=${store.currentId}` : ''
-    const url = `/api/ask?q=${encodeURIComponent(q)}${convParam}`
-    const resp = await fetch(url, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    })
-
-    const reader = resp.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-
-      const lines = buffer.split('\n')
-      buffer = lines.pop()
-
-      for (const line of lines) {
-        if (line.startsWith('data:')) {
-          const data = line.slice(5).trim()
-          if (!data) continue
-          try {
-            const parsed = JSON.parse(data)
-            if (parsed.sources) {
-              aiMsg.sources = parsed.sources
-            } else if (parsed.text) {
-              aiMsg.content += parsed.text
-              scrollToBottom()
-            } else if (parsed.ok === false) {
-              aiMsg.error = parsed.error || '请求失败'
-            } else if (parsed.ok === true && parsed.conversation_id) {
-              // 后端创建了新对话，更新 currentId
-              if (!store.currentId) {
-                store.currentId = parsed.conversation_id
-                await store.fetchConversations()
-              }
-            }
-          } catch {
-            // 非 JSON 数据，跳过
-          }
-        }
-      }
-    }
-  } catch (e) {
-    aiMsg.error = '网络错误，请稍后重试'
-  } finally {
-    streaming.value = false
-  }
+  // 发送后让 store 在后台流式接收，组件不阻塞
+  store.ask(q)
 }
 </script>
+
+<style>
+/* Markdown 渲染样式 */
+.prose-chat {
+  line-height: 1.7;
+}
+.prose-chat p {
+  margin: 0.5em 0;
+}
+.prose-chat h1, .prose-chat h2, .prose-chat h3, .prose-chat h4 {
+  font-weight: 600;
+  margin: 0.8em 0 0.4em;
+  line-height: 1.3;
+}
+.prose-chat h1 { font-size: 1.3em; }
+.prose-chat h2 { font-size: 1.2em; }
+.prose-chat h3 { font-size: 1.1em; }
+.prose-chat h4 { font-size: 1em; }
+.prose-chat ul, .prose-chat ol {
+  margin: 0.4em 0;
+  padding-left: 1.5em;
+}
+.prose-chat li {
+  margin: 0.2em 0;
+}
+.prose-chat ul li {
+  list-style: disc;
+}
+.prose-chat ol li {
+  list-style: decimal;
+}
+.prose-chat strong {
+  font-weight: 600;
+}
+.prose-chat code {
+  background: #f3f4f6;
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  font-size: 0.9em;
+  font-family: monospace;
+}
+.prose-chat pre {
+  background: #1e293b;
+  color: #e2e8f0;
+  padding: 0.8em;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.prose-chat pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+.prose-chat blockquote {
+  border-left: 3px solid #93c5fd;
+  padding-left: 0.8em;
+  margin: 0.5em 0;
+  color: #6b7280;
+}
+.prose-chat table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+}
+.prose-chat th, .prose-chat td {
+  border: 1px solid #e5e7eb;
+  padding: 0.4em 0.7em;
+  text-align: left;
+}
+.prose-chat th {
+  background: #f9fafb;
+  font-weight: 600;
+}
+</style>

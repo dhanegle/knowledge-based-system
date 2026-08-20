@@ -21,6 +21,7 @@
           对话问答
         </router-link>
         <router-link
+          v-if="auth.isAdmin"
           to="/documents"
           class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors"
           :class="$route.name === 'documents' ? 'bg-zhiyuan-600 text-white' : 'text-zhiyuan-200 hover:bg-zhiyuan-700'"
@@ -29,6 +30,17 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
           文档管理
+        </router-link>
+        <router-link
+          v-if="auth.isAdmin"
+          to="/users"
+          class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors"
+          :class="$route.name === 'users' ? 'bg-zhiyuan-600 text-white' : 'text-zhiyuan-200 hover:bg-zhiyuan-700'"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+          </svg>
+          用户管理
         </router-link>
       </nav>
 
@@ -65,7 +77,12 @@
           <div class="w-8 h-8 rounded-full bg-zhiyuan-500 flex items-center justify-center text-sm font-bold">
             {{ auth.user?.username?.charAt(0).toUpperCase() || '?' }}
           </div>
-          <span class="text-sm text-zhiyuan-200">{{ auth.user?.username || '未登录' }}</span>
+          <div class="flex flex-col">
+            <span class="text-sm text-zhiyuan-200">{{ auth.user?.username || '未登录' }}</span>
+            <span class="text-xs" :class="auth.isOwner ? 'text-amber-300' : (auth.isAdmin ? 'text-zhiyuan-300' : 'text-zhiyuan-400')">
+              {{ auth.isOwner ? '站长' : (auth.isAdmin ? '管理员' : '普通用户') }}
+            </span>
+          </div>
         </div>
         <button
           @click="handleLogout"

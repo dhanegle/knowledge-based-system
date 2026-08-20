@@ -5,12 +5,23 @@ build/
 dist/
 wheels/
 *.egg-info
+.pytest_cache/
+.ruff_cache/
 
 # Virtual environments
-.venv
+.venv/
 
 # Environment files (contain secrets)
 .env
 
 # Claude Code session data
 .claude/
+
+# Stray dev artifacts
+file
+*.db
+test_*.db
+
+# Frontend
+frontend/node_modules/
+frontend/dist/

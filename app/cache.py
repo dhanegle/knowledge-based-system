@@ -51,10 +51,17 @@ async def reset_redis() -> None:
     _redis_checked = False
 
 
-def _cache_key(question: str, doc_ids: list[str] | None) -> str:
-    """生成缓存键：hash(question + sorted(doc_ids))。"""
+def _cache_key(question: str, doc_ids: list[str] | None, user_id: str | None = None) -> str:
+    """生成缓存键：hash(question + sorted(doc_ids) + user_id)。
+
+    user_id 纳入键中，防止不同用户命中同一缓存导致对话串通。
+    """
     raw = json.dumps(
-        {"q": question.strip().lower(), "docs": sorted(doc_ids) if doc_ids else []},
+        {
+            "q": question.strip().lower(),
+            "docs": sorted(doc_ids) if doc_ids else [],
+            "u": user_id or "",
+        },
         ensure_ascii=False,
         sort_keys=True,
     )
@@ -62,13 +69,17 @@ def _cache_key(question: str, doc_ids: list[str] | None) -> str:
     return f"zhiyuan:cache:ask:{digest}"
 
 
-async def get_cached_answer(question: str, doc_ids: list[str] | None = None) -> dict[str, Any] | None:
+async def get_cached_answer(
+    question: str,
+    doc_ids: list[str] | None = None,
+    user_id: str | None = None,
+) -> dict[str, Any] | None:
     """从缓存获取查询结果，未命中或 Redis 不可用时返回 None。"""
     client = _get_redis()
     if client is None:
         return None
     try:
-        key = _cache_key(question, doc_ids)
+        key = _cache_key(question, doc_ids, user_id)
         raw = await client.get(key)
         if raw is None:
             return None
@@ -84,6 +95,7 @@ async def set_cached_answer(
     question: str,
     answer: dict[str, Any],
     doc_ids: list[str] | None = None,
+    user_id: str | None = None,
     ttl: int | None = None,
 ) -> None:
     """写入缓存，Redis 不可用时静默跳过。"""
@@ -91,7 +103,7 @@ async def set_cached_answer(
     if client is None:
         return
     try:
-        key = _cache_key(question, doc_ids)
+        key = _cache_key(question, doc_ids, user_id)
         raw = json.dumps(answer, ensure_ascii=False)
         await client.set(key, raw, ex=ttl or settings.cache_ttl)
         logger.info("cache_set", key=key[:32], ttl=ttl or settings.cache_ttl)
