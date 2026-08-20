@@ -7,11 +7,13 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, Request
+from sqlalchemy import select
 from sse_starlette.sse import EventSourceResponse
 
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
 from app.cache import get_cached_answer, set_cached_answer
+from app.errors import DocumentNotFoundError
 from app.llm.base import get_llm_client
 from app.storage.conversation import Conversation, Message
 from app.storage.session import get_session
@@ -34,6 +36,10 @@ async def ask(
     如果 conversation_id 为 None，自动创建新对话。
     """
     doc_id_list = [d.strip() for d in doc_ids.split(",")] if doc_ids else None
+
+    # 校验传入的 conversation_id 归属当前用户，防止越权写入他人对话
+    if conversation_id:
+        await _verify_conversation_owner(conversation_id, current_user.id)
 
     # 1. 查缓存
     cached = await get_cached_answer(q, doc_id_list)
@@ -121,6 +127,19 @@ async def ask(
         event_generator(),
         headers={"X-Accel-Buffering": "no"},
     )
+
+
+async def _verify_conversation_owner(conversation_id: str, user_id: str) -> None:
+    """校验 conversation_id 属于 user_id，否则 404（不暴露存在性）。"""
+    async with get_session() as session:
+        result = await session.execute(
+            select(Conversation.id).where(
+                Conversation.id == conversation_id,
+                Conversation.user_id == user_id,
+            )
+        )
+        if result.scalar_one_or_none() is None:
+            raise DocumentNotFoundError("对话不存在")
 
 
 async def _ensure_conversation(

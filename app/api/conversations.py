@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy import select, delete as sa_delete
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, delete as sa_delete, update
 
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
+from app.errors import DocumentNotFoundError
 from app.storage.conversation import Conversation, Message
 from app.storage.session import get_session
 
@@ -82,7 +83,7 @@ async def get_conversation(
         )
         conv = result.scalar_one_or_none()
         if conv is None:
-            raise HTTPException(status_code=404, detail="对话不存在")
+            raise DocumentNotFoundError("对话不存在")
 
         msg_result = await session.execute(
             select(Message)
@@ -90,8 +91,6 @@ async def get_conversation(
             .order_by(Message.created_at.asc())
         )
         messages = msg_result.scalars().all()
-
-        import json
 
         return {
             "id": conv.id,
@@ -126,7 +125,7 @@ async def delete_conversation(
         )
         conv = result.scalar_one_or_none()
         if conv is None:
-            raise HTTPException(status_code=404, detail="对话不存在")
+            raise DocumentNotFoundError("对话不存在")
 
         await session.execute(
             sa_delete(Message).where(Message.conversation_id == conv_id)
@@ -143,8 +142,6 @@ async def update_conversation(
     current_user: User = Depends(get_current_user),
 ):
     """更新对话标题。"""
-    from sqlalchemy import update
-
     async with get_session() as session:
         result = await session.execute(
             update(Conversation)
@@ -156,6 +153,6 @@ async def update_conversation(
             .returning(Conversation.id)
         )
         if result.scalar_one_or_none() is None:
-            raise HTTPException(status_code=404, detail="对话不存在")
+            raise DocumentNotFoundError("对话不存在")
         await session.commit()
         return {"id": conv_id, "title": req.title}

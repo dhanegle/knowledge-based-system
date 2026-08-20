@@ -6,10 +6,13 @@ import logging
 import pathlib
 import tempfile
 
-from fastapi import APIRouter, UploadFile, File
+from fastapi import APIRouter, Depends, UploadFile, File
 from sqlalchemy import select
 
-from app.errors import DocumentNotFoundError, DuplicateDocumentError
+from app.auth.dependencies import get_current_user
+from app.auth.models import User
+from app.cache import invalidate_doc_cache
+from app.errors import DocumentNotFoundError, DocumentParseError
 from app.ingestion.parser import SUPPORTED_EXTENSIONS
 from app.ingestion.pipeline import get_pipeline
 from app.storage.postgres import Document
@@ -20,18 +23,21 @@ logger = logging.getLogger(__name__)
 
 
 @router.post("/documents/upload")
-async def upload_document(file: UploadFile = File(...)):
+async def upload_document(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
     """上传文档并摄入。
 
     接收文件 → 保存临时文件 → 调用摄入管线 → 返回结果。
     相同 checksum 的文件会自动跳过重复摄入。
     """
     if not file.filename:
-        raise DuplicateDocumentError("文件名不能为空")
+        raise DocumentParseError("文件名不能为空")
 
     ext = pathlib.Path(file.filename).suffix.lower()
     if ext not in SUPPORTED_EXTENSIONS:
-        raise DocumentNotFoundError(
+        raise DocumentParseError(
             f"不支持的文件格式: {ext}（支持: {', '.join(sorted(SUPPORTED_EXTENSIONS))}）"
         )
 
@@ -54,7 +60,7 @@ async def upload_document(file: UploadFile = File(...)):
 
 
 @router.get("/documents")
-async def list_documents():
+async def list_documents(current_user: User = Depends(get_current_user)):
     """列出所有文档。"""
     async with get_session() as session:
         result = await session.execute(select(Document).order_by(Document.created_at.desc()))
@@ -76,7 +82,10 @@ async def list_documents():
 
 
 @router.get("/documents/{doc_id}")
-async def get_document(doc_id: str):
+async def get_document(
+    doc_id: str,
+    current_user: User = Depends(get_current_user),
+):
     """查询单个文档详情（含处理状态，供前端轮询摄入进度）。"""
     async with get_session() as session:
         result = await session.execute(select(Document).where(Document.id == doc_id))
@@ -98,27 +107,36 @@ async def get_document(doc_id: str):
 
 
 @router.delete("/documents/{doc_id}")
-async def delete_document(doc_id: str):
-    """删除文档及其所有 chunks（先删 Qdrant，再删 Postgres）。"""
+async def delete_document(
+    doc_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """删除文档及其所有 chunks（先删 Qdrant，再删 Postgres，再清缓存）。"""
     pipeline = get_pipeline()
     deleted = await pipeline.delete_document(doc_id)
     if not deleted:
         raise DocumentNotFoundError("文档不存在")
+    # 文档删除后，相关查询缓存应失效
+    await invalidate_doc_cache(doc_id)
     return {"deleted": True, "doc_id": doc_id}
 
 
 @router.post("/documents/{doc_id}/reingest")
-async def reingest_document(doc_id: str, file: UploadFile = File(...)):
+async def reingest_document(
+    doc_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
     """重新摄入文档：删除旧 chunks 后用新文件重新摄入。
 
     用于文档内容变更后更新向量索引。
     """
     if not file.filename:
-        raise DuplicateDocumentError("文件名不能为空")
+        raise DocumentParseError("文件名不能为空")
 
     ext = pathlib.Path(file.filename).suffix.lower()
     if ext not in SUPPORTED_EXTENSIONS:
-        raise DocumentNotFoundError(f"不支持的文件格式: {ext}")
+        raise DocumentParseError(f"不支持的文件格式: {ext}")
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
         content = await file.read()
@@ -128,6 +146,8 @@ async def reingest_document(doc_id: str, file: UploadFile = File(...)):
     try:
         pipeline = get_pipeline()
         result = await pipeline.reingest(doc_id, tmp_path)
+        # 重新摄入后旧缓存失效
+        await invalidate_doc_cache(doc_id)
         return {
             "doc_id": result.doc_id,
             "filename": result.filename,

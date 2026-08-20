@@ -16,6 +16,7 @@ from app.storage.session import init_db
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+    _warn_insecure_secret()
     client = get_llm_client()
     app.state.llm_client = client
     qdrant = get_qdrant_store()
@@ -37,6 +38,15 @@ async def lifespan(app: FastAPI):
         _qdrant_mod._store = None
         app.state.llm_client = None
         app.state.rag_service = None
+
+
+def _warn_insecure_secret() -> None:
+    """非 debug 模式下使用默认 jwt_secret 是严重安全风险，打印警告。"""
+    if not settings.debug and settings.jwt_is_default_secret:
+        import logging
+        logging.getLogger("app").warning(
+            "⚠️ ZHIYUAN_JWT_SECRET 仍为默认值！生产环境必须设置，否则可伪造任意用户令牌。"
+        )
 
 
 def create_app() -> FastAPI:

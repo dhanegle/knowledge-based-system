@@ -7,7 +7,7 @@ from datetime import datetime
 from sqlalchemy import String, Text, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.storage.postgres import Base
+from app.storage.postgres import Base, _utcnow
 
 
 class Conversation(Base):
@@ -17,9 +17,9 @@ class Conversation(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
     title: Mapped[str] = mapped_column(String(255), default="新对话")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=_utcnow, onupdate=_utcnow
     )
 
     def __repr__(self) -> str:
@@ -37,7 +37,7 @@ class Message(Base):
     role: Mapped[str] = mapped_column(String(20))  # "user" | "assistant"
     content: Mapped[str] = mapped_column(Text)
     sources: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON string
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
     def __repr__(self) -> str:
         return f"<Message {self.role}>"
