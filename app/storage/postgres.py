@@ -7,7 +7,7 @@ chunks 不存这里（在 Qdrant），这里只追踪文档级信息。
 from __future__ import annotations
 
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import String, Text, DateTime, Integer, Enum as SAEnum
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -26,6 +26,10 @@ class Base(DeclarativeBase):
     pass
 
 
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 class Document(Base):
     """文档注册表 —— 记录每个上传的文档及其处理状态。"""
     __tablename__ = "documents"
@@ -40,9 +44,9 @@ class Document(Base):
     )
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=_utcnow, onupdate=_utcnow
     )
 
     def __repr__(self) -> str:

@@ -97,3 +97,23 @@ async def set_cached_answer(
         logger.info("cache_set", key=key[:32], ttl=ttl or settings.cache_ttl)
     except Exception as e:
         logger.warning("cache_set_failed", error=str(e))
+
+
+async def invalidate_doc_cache(doc_id: str) -> None:
+    """文档删除/重新摄入后，清除可能引用该文档的查询缓存。
+
+    缓存键是 question+doc_ids 的哈希，无法反查，故用 SCAN 匹配前缀批量删除。
+    Redis 不可用时静默跳过。
+    """
+    client = _get_redis()
+    if client is None:
+        return
+    try:
+        deleted = 0
+        async for key in client.scan_iter(match="zhiyuan:cache:ask:*", count=200):
+            await client.delete(key)
+            deleted += 1
+        if deleted:
+            logger.info("cache_invalidated_by_doc", doc_id=doc_id, deleted=deleted)
+    except Exception as e:
+        logger.warning("cache_invalidate_failed", error=str(e))

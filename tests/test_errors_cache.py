@@ -45,6 +45,36 @@ def _mock_infra(monkeypatch):
     return fake
 
 
+def _setup_test_db(monkeypatch):
+    import uuid as _uuid
+    import app.storage.session as session_mod
+    session_mod._engine = None
+    monkeypatch.setattr(
+        settings, "database_url",
+        f"sqlite+aiosqlite:///file:{_uuid.uuid4().hex}?mode=memory&cache=shared",
+    )
+
+
+def _create_test_user(client):
+    resp = client.post(
+        "/auth/register",
+        json={
+            "username": "testuser",
+            "email": "test@example.com",
+            "password": "password123",
+        },
+    )
+    assert resp.status_code == 201
+    token = resp.json()["access_token"]
+    return token
+
+
+def _reset_cache():
+    import app.cache as cache_mod
+    cache_mod._redis_checked = True
+    cache_mod._redis_client = None
+
+
 def test_error_hierarchy():
     """所有业务异常都继承 ZhiyuanError，且有 error_code 和 http_status。"""
     for exc_cls in [
@@ -64,9 +94,14 @@ def test_error_hierarchy():
 def test_document_not_found_error_returns_404(monkeypatch):
     monkeypatch.setattr(main, "get_llm_client", lambda: StubLLMClient())
     _mock_infra(monkeypatch)
+    _setup_test_db(monkeypatch)
 
     with TestClient(main.create_app()) as client:
-        resp = client.get("/documents/nonexistent-id")
+        token = _create_test_user(client)
+        resp = client.get(
+            "/documents/nonexistent-id",
+            headers={"Authorization": f"Bearer {token}"},
+        )
         assert resp.status_code == 404
         body = resp.json()
         assert body["ok"] is False
@@ -77,6 +112,7 @@ def test_unhandled_error_returns_500(monkeypatch):
     """未知异常被全局处理器捕获，返回 500 且不泄露内部信息。"""
     monkeypatch.setattr(main, "get_llm_client", lambda: StubLLMClient())
     _mock_infra(monkeypatch)
+    _setup_test_db(monkeypatch)
 
     from fastapi import APIRouter
 

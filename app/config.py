@@ -75,5 +75,10 @@ class Settings(BaseSettings):
             )
         )
 
+    @property
+    def jwt_is_default_secret(self) -> bool:
+        """jwt_secret 是否仍为不安全的默认值。"""
+        return self.jwt_secret == "zhiyuan-dev-secret-change-in-production"
+
 
 settings = Settings()
