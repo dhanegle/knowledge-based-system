@@ -9,10 +9,10 @@ import structlog
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
-from app.llm.base import LLMClient, get_llm_client
+from app.llm.base import LLMClient
 from app.observability.langfuse import trace_span
 from app.rag.prompt_builder import SYSTEM_PROMPT, build_context, build_user_message
-from app.retrieval.reranker import RerankedChunk, get_reranker
+from app.retrieval.reranker import get_reranker
 from app.retrieval.vector_search import VectorSearcher
 
 logger = structlog.get_logger("app.rag")

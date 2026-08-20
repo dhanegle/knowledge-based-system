@@ -21,6 +21,7 @@ const routes = [
     children: [
       { path: '', name: 'chat', component: () => import('../views/ChatView.vue') },
       { path: 'documents', name: 'documents', component: () => import('../views/DocumentsView.vue') },
+      { path: 'users', name: 'users', component: () => import('../views/UsersView.vue'), meta: { admin: true } },
     ],
   },
 ]
@@ -36,6 +37,9 @@ router.beforeEach((to) => {
     return { name: 'login' }
   }
   if (to.meta.guest && auth.isLoggedIn) {
+    return { name: 'chat' }
+  }
+  if (to.meta.admin && !auth.isAdmin) {
     return { name: 'chat' }
   }
 })

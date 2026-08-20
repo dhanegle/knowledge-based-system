@@ -4,7 +4,7 @@
     <div class="px-6 py-4 border-b border-gray-200 bg-white flex items-center justify-between">
       <div>
         <h2 class="text-lg font-semibold text-gray-800">文档管理</h2>
-        <p class="text-sm text-gray-500">上传、管理和查看知识库文档</p>
+        <p class="text-sm text-gray-500">{{ auth.isAdmin ? '上传、管理和查看知识库文档' : '查看知识库文档（只读）' }}</p>
       </div>
       <button
         @click="refresh"
@@ -18,8 +18,9 @@
     </div>
 
     <div class="flex-1 overflow-y-auto p-6">
-      <!-- 上传区 -->
+      <!-- 上传区（仅管理员可见） -->
       <div
+        v-if="auth.isAdmin"
         class="mb-6 border-2 border-dashed rounded-xl p-8 text-center transition-colors"
         :class="dragOver ? 'border-zhiyuan-500 bg-zhiyuan-50' : 'border-gray-300'"
         @dragover.prevent="dragOver = true"
@@ -50,7 +51,7 @@
 
       <!-- 文档列表 -->
       <div v-if="docs.length === 0 && !loading" class="text-center text-gray-400 py-12">
-        暂无文档，上传第一个文档开始使用知识库
+        {{ auth.isAdmin ? '暂无文档，上传第一个文档开始使用知识库' : '暂无文档' }}
       </div>
 
       <div v-else class="space-y-3">
@@ -82,8 +83,8 @@
             <p v-if="doc.error" class="text-xs text-red-500 mt-1">{{ doc.error }}</p>
           </div>
 
-          <!-- 操作 -->
-          <div class="flex items-center gap-2 flex-shrink-0">
+          <!-- 操作（仅管理员可见） -->
+          <div v-if="auth.isAdmin" class="flex items-center gap-2 flex-shrink-0">
             <button
               v-if="doc.status === 'failed' || doc.status === 'indexed'"
               @click="handleReingest(doc)"
@@ -111,22 +112,23 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useDocumentStore } from '../stores/documents'
+import { useAuthStore } from '../stores/auth'
 
 const store = useDocumentStore()
-const docs = ref(store.documents)
-const loading = ref(store.loading)
+const auth = useAuthStore()
 const uploading = ref(false)
 const dragOver = ref(false)
 const fileInput = ref(null)
 let pollTimer = null
 
-const docs_ref = docs
+// 直接用 store 的响应式数据，避免本地 ref 复制导致的同步问题
+const docs = computed(() => store.documents)
+const loading = computed(() => store.loading)
 
 onMounted(async () => {
   await store.fetchDocuments()
-  docs.value = store.documents
   // 自动轮询：如果有非终态文档则持续刷新
   pollTimer = setInterval(async () => {
     const hasPending = docs.value.some(d =>
@@ -134,7 +136,6 @@ onMounted(async () => {
     )
     if (hasPending || uploading.value) {
       await store.fetchDocuments()
-      docs.value = store.documents
     }
   }, 3000)
 })
@@ -145,7 +146,6 @@ onUnmounted(() => {
 
 async function refresh() {
   await store.fetchDocuments()
-  docs.value = store.documents
 }
 
 async function handleFileSelect(e) {
@@ -168,7 +168,6 @@ async function uploadFile(file) {
   uploading.value = true
   try {
     await store.upload(file)
-    docs.value = store.documents
   } catch (e) {
     alert(e.detail || e.error || '上传失败')
   } finally {
@@ -180,7 +179,6 @@ async function handleDelete(doc) {
   if (!confirm(`确认删除「${doc.filename}」？`)) return
   try {
     await store.remove(doc.id)
-    docs.value = store.documents
   } catch (e) {
     alert(e.detail || e.error || '删除失败')
   }
@@ -195,7 +193,6 @@ async function handleReingest(doc) {
     if (!file) return
     try {
       await store.reingest(doc.id, file)
-      docs.value = store.documents
     } catch (e) {
       alert(e.detail || e.error || '重新摄入失败')
     }

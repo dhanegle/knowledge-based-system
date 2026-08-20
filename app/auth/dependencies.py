@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
-
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
@@ -38,6 +36,26 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
         if user is None:
             raise credentials_exc
         return user
+
+
+async def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
+    """要求当前用户是管理员或站长，否则 403。"""
+    if current_user.role not in ("admin", "owner"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="需要管理员权限",
+        )
+    return current_user
+
+
+async def get_current_owner(current_user: User = Depends(get_current_user)) -> User:
+    """要求当前用户是站长，否则 403。"""
+    if current_user.role != "owner":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="需要站长权限",
+        )
+    return current_user
 
 
 CurrentUser = User

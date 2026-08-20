@@ -145,23 +145,31 @@ def test_unhandled_error_returns_500(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_cache_key_is_deterministic():
-    k1 = _cache_key("hello", None)
-    k2 = _cache_key("hello", None)
+    k1 = _cache_key("hello", None, "user1")
+    k2 = _cache_key("hello", None, "user1")
     assert k1 == k2
 
 
 @pytest.mark.asyncio
 async def test_cache_key_differs_for_different_questions():
-    k1 = _cache_key("hello", None)
-    k2 = _cache_key("world", None)
+    k1 = _cache_key("hello", None, "user1")
+    k2 = _cache_key("world", None, "user1")
     assert k1 != k2
 
 
 @pytest.mark.asyncio
 async def test_cache_key_normalizes_doc_ids_order():
-    k1 = _cache_key("question", ["a", "b"])
-    k2 = _cache_key("question", ["b", "a"])
+    k1 = _cache_key("question", ["a", "b"], "user1")
+    k2 = _cache_key("question", ["b", "a"], "user1")
     assert k1 == k2
+
+
+@pytest.mark.asyncio
+async def test_cache_key_differs_for_different_users():
+    """不同用户的相同问题不应命中同一缓存，防止对话串通。"""
+    k1 = _cache_key("hello", None, "user1")
+    k2 = _cache_key("hello", None, "user2")
+    assert k1 != k2
 
 
 @pytest.mark.asyncio
@@ -173,8 +181,8 @@ async def test_cache_miss_returns_none_without_redis():
     cache_mod._redis_checked = True
     cache_mod._redis_client = None
 
-    result = await get_cached_answer("test question", None)
+    result = await get_cached_answer("test question", None, user_id="testuser")
     assert result is None
 
     # set should also not raise
-    await set_cached_answer("test", {"answer": "hello"}, None)
+    await set_cached_answer("test", {"answer": "hello"}, None, user_id="testuser")
