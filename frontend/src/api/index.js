@@ -85,3 +85,31 @@ export async function reingestDocument(docId, file) {
 }
 
 export { API_BASE, getToken }
+
+// ---- 对话历史 ----
+
+export async function listConversations() {
+  return request('/conversations')
+}
+
+export async function createConversation(title) {
+  return request('/conversations', {
+    method: 'POST',
+    body: { title },
+  })
+}
+
+export async function getConversation(id) {
+  return request(`/conversations/${id}`)
+}
+
+export async function deleteConversation(id) {
+  return request(`/conversations/${id}`, { method: 'DELETE' })
+}
+
+export async function updateConversation(id, title) {
+  return request(`/conversations/${id}`, {
+    method: 'PATCH',
+    body: { title },
+  })
+}

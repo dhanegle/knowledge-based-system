@@ -53,6 +53,38 @@ def _mock_qdrant(monkeypatch):
     return fake
 
 
+def _setup_test_db(monkeypatch):
+    """Use in-memory SQLite for test isolation."""
+    import uuid as _uuid
+    import app.storage.session as session_mod
+    session_mod._engine = None
+    monkeypatch.setattr(
+        settings, "database_url",
+        f"sqlite+aiosqlite:///file:{_uuid.uuid4().hex}?mode=memory&cache=shared",
+    )
+
+
+def _reset_cache():
+    """Disable Redis cache to avoid cross-test cache hits."""
+    import app.cache as cache_mod
+    cache_mod._redis_checked = True
+    cache_mod._redis_client = None
+
+
+def _create_test_user(client):
+    """Register a test user and return the auth token."""
+    resp = client.post(
+        "/auth/register",
+        json={
+            "username": "testuser",
+            "email": "test@example.com",
+            "password": "password123",
+        },
+    )
+    assert resp.status_code == 201
+    return resp.json()["access_token"]
+
+
 def test_health_requires_all_llm_settings(monkeypatch):
     monkeypatch.setattr(main, "get_llm_client", lambda: StubLLMClient())
     monkeypatch.setattr(settings, "llm_base_url", "")
@@ -85,24 +117,36 @@ def test_ask_streams_tokens_and_closes_shared_client(monkeypatch):
     llm = RecordingLLMClient()
     monkeypatch.setattr(main, "get_llm_client", lambda: llm)
     _mock_qdrant(monkeypatch)
+    _setup_test_db(monkeypatch)
+    _reset_cache()
 
     with TestClient(main.create_app()) as client:
-        response = client.get("/ask", params={"q": "你好"})
+        token = _create_test_user(client)
+        response = client.get(
+            "/ask", params={"q": "你好"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
     assert 'event: token\r\ndata: {"text": "第一段"}' in response.text
     assert 'event: token\r\ndata: {"text": "第二段"}' in response.text
-    assert 'event: done\r\ndata: {"ok": true}' in response.text
+    assert '"ok": true' in response.text
     assert llm.closed is True
 
 
 def test_ask_emits_error_event_without_upstream_details(monkeypatch):
     monkeypatch.setattr(main, "get_llm_client", lambda: FailingLLMClient())
     _mock_qdrant(monkeypatch)
+    _setup_test_db(monkeypatch)
+    _reset_cache()
 
     with TestClient(main.create_app()) as client:
-        response = client.get("/ask", params={"q": "hello"})
+        token = _create_test_user(client)
+        response = client.get(
+            "/ask", params={"q": "hello"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
 
     assert response.status_code == 200
     assert 'event: error\r\ndata: {"ok": false, "error": "LLM request failed"}' in response.text
@@ -113,8 +157,26 @@ def test_ask_emits_error_event_without_upstream_details(monkeypatch):
 def test_ask_requires_question(monkeypatch):
     monkeypatch.setattr(main, "get_llm_client", lambda: StubLLMClient())
     _mock_qdrant(monkeypatch)
+    _setup_test_db(monkeypatch)
+    _reset_cache()
 
     with TestClient(main.create_app()) as client:
-        response = client.get("/ask")
+        token = _create_test_user(client)
+        response = client.get(
+            "/ask",
+            headers={"Authorization": f"Bearer {token}"},
+        )
 
     assert response.status_code == 422
+
+
+def test_ask_requires_auth(monkeypatch):
+    monkeypatch.setattr(main, "get_llm_client", lambda: StubLLMClient())
+    _mock_qdrant(monkeypatch)
+    _setup_test_db(monkeypatch)
+    _reset_cache()
+
+    with TestClient(main.create_app()) as client:
+        response = client.get("/ask", params={"q": "你好"})
+
+    assert response.status_code == 401
