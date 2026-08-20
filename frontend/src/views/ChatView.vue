@@ -1,21 +1,32 @@
 <template>
   <div class="flex flex-col h-full">
     <!-- 顶栏 -->
-    <div class="px-6 py-4 border-b border-gray-200 bg-white">
-      <h2 class="text-lg font-semibold text-gray-800">对话问答</h2>
-      <p class="text-sm text-gray-500">基于知识库的 RAG 问答，回答附带引用来源</p>
+    <div class="px-6 py-4 border-b border-gray-200 bg-white flex items-center justify-between">
+      <div>
+        <h2 class="text-lg font-semibold text-gray-800">对话问答</h2>
+        <p class="text-sm text-gray-500">基于知识库的 RAG 问答，回答附带引用来源</p>
+      </div>
+      <button
+        @click="handleNewConversation"
+        class="px-4 py-2 text-sm bg-zhiyuan-600 text-white rounded-lg hover:bg-zhiyuan-700 transition flex items-center gap-1.5"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+        </svg>
+        新对话
+      </button>
     </div>
 
     <!-- 消息列表 -->
     <div ref="messagesEl" class="flex-1 overflow-y-auto px-6 py-6 space-y-6">
-      <div v-if="messages.length === 0" class="text-center text-gray-400 mt-20">
+      <div v-if="store.messages.length === 0" class="text-center text-gray-400 mt-20">
         <svg class="w-16 h-16 mx-auto mb-4 text-zhiyuan-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
         </svg>
         <p>输入问题开始对话</p>
       </div>
 
-      <div v-for="(msg, i) in messages" :key="i" class="space-y-2">
+      <div v-for="(msg, i) in store.messages" :key="i" class="space-y-2">
         <!-- 用户消息 -->
         <div v-if="msg.role === 'user'" class="flex justify-end">
           <div class="max-w-2xl px-4 py-3 bg-zhiyuan-600 text-white rounded-2xl rounded-br-sm">
@@ -78,10 +89,11 @@
 </template>
 
 <script setup>
-import { ref, nextTick, reactive } from 'vue'
+import { ref, nextTick, reactive, onMounted, watch } from 'vue'
 import { getToken } from '../api'
+import { useConversationStore } from '../stores/conversations'
 
-const messages = ref([])
+const store = useConversationStore()
 const question = ref('')
 const streaming = ref(false)
 const messagesEl = ref(null)
@@ -94,22 +106,36 @@ function scrollToBottom() {
   })
 }
 
+onMounted(async () => {
+  await store.fetchConversations()
+  if (store.conversations.length > 0) {
+    await store.selectConversation(store.conversations[0].id)
+  }
+  scrollToBottom()
+})
+
+async function handleNewConversation() {
+  await store.createNew()
+  scrollToBottom()
+}
+
 async function handleAsk() {
   const q = question.value.trim()
   if (!q || streaming.value) return
 
-  messages.value.push({ role: 'user', content: q })
+  store.messages.push({ role: 'user', content: q })
   question.value = ''
   scrollToBottom()
 
   streaming.value = true
   const aiMsg = reactive({ role: 'assistant', content: '', sources: [], error: '' })
-  messages.value.push(aiMsg)
+  store.messages.push(aiMsg)
   scrollToBottom()
 
   try {
     const token = getToken()
-    const url = `/api/ask?q=${encodeURIComponent(q)}`
+    const convParam = store.currentId ? `&conversation_id=${store.currentId}` : ''
+    const url = `/api/ask?q=${encodeURIComponent(q)}${convParam}`
     const resp = await fetch(url, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
@@ -132,7 +158,6 @@ async function handleAsk() {
           if (!data) continue
           try {
             const parsed = JSON.parse(data)
-            // 判断事件类型
             if (parsed.sources) {
               aiMsg.sources = parsed.sources
             } else if (parsed.text) {
@@ -140,6 +165,12 @@ async function handleAsk() {
               scrollToBottom()
             } else if (parsed.ok === false) {
               aiMsg.error = parsed.error || '请求失败'
+            } else if (parsed.ok === true && parsed.conversation_id) {
+              // 后端创建了新对话，更新 currentId
+              if (!store.currentId) {
+                store.currentId = parsed.conversation_id
+                await store.fetchConversations()
+              }
             }
           } catch {
             // 非 JSON 数据，跳过

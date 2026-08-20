@@ -4,31 +4,49 @@
 
 ## 快速开始
 
-### 后端
+### 一键启动开发环境
+
+**Linux / macOS / Git Bash：**
 
 ```bash
-cp .env.example .env   # 填写 LLM / Embedding 配置
-uv sync                # 安装依赖
+bash scripts/dev.sh
+```
+
+**Windows PowerShell：**
+
+```powershell
+.\scripts\dev.ps1
+```
+
+脚本会自动启动基础设施（Qdrant + Postgres + Redis）、后端、前端。
+
+### 手动分步启动
+
+**1. 基础设施（Qdrant + Postgres + Redis）**
+
+```bash
+docker compose up -d qdrant postgres redis
+```
+
+**2. 后端**
+
+```bash
+cp .env.example .env   # 首次运行：填写 LLM / Embedding 配置
+uv sync                # 首次运行：安装依赖
 uv run uvicorn app.main:app --reload --port 8000
 ```
 
 打开 http://localhost:8000/docs 查看 API 文档。
 
-### 前端
+**3. 前端（另开一个终端）**
 
 ```bash
 cd frontend
-npm install
+npm install            # 首次运行：安装依赖
 npm run dev            # 启动开发服务器 http://localhost:5173
 ```
 
 前端开发服务器已配置代理，`/api` 请求自动转发到后端 `localhost:8000`。
-
-### 基础设施
-
-```bash
-docker compose up -d qdrant postgres redis   # 启动向量库/关系库/缓存
-```
 
 ### 全栈 Docker 部署
 
