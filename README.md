@@ -1,134 +1,309 @@
-# 知源（ZhiYuan）
+# 知源 ZhiYuan
 
-面向企业内部的个人知识库问答系统。把 PDF、Word、PPT、Excel 和技术文档摄入向量库，用 RAG（检索增强生成）回答问题，回答可追溯到来源文档。
+[English](#zhiyuan) · [中文](#知源)
 
-上传文档 → 自动解析、分块、向量化 → 提问时检索相关片段 → 大模型基于上下文流式生成回答。
+An internal knowledge-base Q&A system. Office documents and technical files are ingested into a vector store; questions are answered with retrieval-augmented generation (RAG), grounded in the uploaded sources.
 
-## 功能
+企业知识库问答系统。办公文档与技术资料经摄入进入向量库；提问时用检索增强生成（RAG）作答，回答基于已上传的原文。
 
-- **文档摄入**：支持 PDF / Word / PPT / Excel / Markdown / 代码文件；SHA-256 去重；失败可重新摄入
-- **RAG 问答**：向量检索 + 关键词重排 + 带引用的流式生成（SSE）
-- **对话历史**：多会话管理，切换路由不中断流式；按用户隔离，缓存键含 `user_id`
-- **角色权限**：站长 / 管理员 / 普通用户三级；首个注册用户自动成为站长；文档增删改仅管理员
-- **用户管理**：站长可查看、删除、重置密码、升降角色；管理员只能管理普通用户
-- **生产加固**：JWT 鉴权、统一异常、Redis 查询缓存（不可用自动降级）、结构化日志
+---
 
-## 技术栈
+## ZhiYuan
 
-| 层 | 技术 |
+Upload a document, ask a question, get a streamed answer drawn from that material. Files stay in your own Postgres and Qdrant instance. Only the question and the retrieved excerpts go to the LLM you configure.
+
+**Project status:** usable local/dev stack. Docker Compose covers the full product (SPA, API, Qdrant, Postgres, Redis). Tests: 42 passing. Not a packaged installer; operators run it themselves.
+
+### Why ZhiYuan
+
+Most RAG demos stop at “upload a PDF and chat.” ZhiYuan is meant to look like a small internal product: accounts, roles, conversation history that does not leak across users, document lifecycle, and a deploy path that is one Compose file.
+
+| Knowledge Q&A | Operations |
 |---|---|
-| 后端 | FastAPI · SQLAlchemy 2 (async) · Pydantic · JWT · bcrypt |
-| 前端 | Vue 3 · Vite · Pinia · Vue Router · Tailwind CSS |
-| 向量库 | Qdrant |
-| 关系库 | PostgreSQL 16 |
-| 缓存 | Redis 7 |
-| 部署 | Docker Compose（前端 nginx + 后端 + 基础设施） |
+| PDF, Word, PPT, Excel, Markdown, source files | JWT accounts; first registrant is owner |
+| Parse → chunk → embed → Qdrant | Admins ingest and delete; users only ask |
+| Dense retrieve + keyword rerank + SSE generation | Per-user conversations; cache keyed by `user_id` |
+| Markdown answers in a Vue 3 UI | Redis cache degrades if Redis is down |
 
-LLM 和 Embedding 走 OpenAI 兼容接口，不绑定具体厂商。当前接入 step-3.7-flash（对话）和 qwen3-embedding-8b（向量，768 维）。
+### Highlights
 
-## 架构
+- **Ingestion pipeline** — SHA-256 dedup, status machine (`pending` → `indexed` / `failed`), re-ingest of a failed or updated file.
+- **Streaming RAG** — SSE tokens; generation lives in a Pinia store so changing routes does not abort the stream.
+- **Isolation** — Conversations and query cache are scoped to the user. Switching accounts clears client state.
+- **Roles** — `owner` / `admin` / `user`. Owner can promote and demote. Admins cannot act on other admins or the owner.
+- **OpenAI-compatible providers** — LLM and embedding URLs are config, not code. Current defaults in docs: step-3.7-flash and qwen3-embedding-8b (768-d).
+- **Compose deploy** — nginx SPA + FastAPI + Qdrant + Postgres 16 + Redis 7.
+
+### Architecture
 
 ```
-浏览器 ──► nginx (Vue 静态) ──► FastAPI
-                                 │
-                    ┌────────────┼────────────┐
-                    ▼            ▼            ▼
-                 Postgres     Qdrant        Redis
-                (用户/文档     (向量块)      (查询缓存)
-                 /对话)
-                    │
-                    ▼
-              LLM / Embedding API  (OpenAI 兼容)
+Browser ──► nginx (Vue 3 SPA) ──► FastAPI
+                                   │
+                      ┌────────────┼────────────┐
+                      ▼            ▼            ▼
+                   Postgres     Qdrant        Redis
+                  (users,       (chunks)      (query cache)
+                   docs,
+                   chats)
+                      │
+                      ▼
+                LLM / Embedding  (OpenAI-compatible HTTP)
 ```
 
-摄入管线：`parse → chunk → embed → Qdrant upsert`，同时在 Postgres 记录文档状态。
+**Ingest:** `parse → chunk → embed → Qdrant upsert`, document row in Postgres.
 
-查询管线：`embed(question) → Qdrant top-k → 关键词重排 → 拼 prompt → LLM SSE 流式生成`。
+**Ask:** `embed(question) → Qdrant top-k → keyword rerank → prompt → LLM SSE`.
 
-## 快速开始
+### Stack
 
-需要：Python 3.12、Node.js 20+、Docker Desktop、[uv](https://docs.astral.sh/uv/)。
+| Layer | Tech |
+|---|---|
+| Backend | FastAPI, SQLAlchemy 2 (async), Pydantic, JWT, bcrypt |
+| Frontend | Vue 3, Vite, Pinia, Vue Router, Tailwind CSS, marked |
+| Vectors | Qdrant 1.12 |
+| Database | PostgreSQL 16 |
+| Cache | Redis 7 |
+| Deploy | Docker Compose |
 
-### 一键启动（开发）
+Python `>=3.12,<3.14`. Package manager: [uv](https://docs.astral.sh/uv/).
+
+### Quick start
+
+**Prerequisites:** Python 3.12, Node.js 20+, Docker Desktop, uv.
 
 ```bash
-cp .env.example .env          # 填写 LLM / Embedding 的 URL 和 key
+git clone https://github.com/dhanegle/zhiyuan-rag.git
+cd zhiyuan-rag
+cp .env.example .env          # set LLM and embedding URL / key / model
 bash scripts/dev.sh           # Linux / macOS / Git Bash
-# 或
+# or
 .\scripts\dev.ps1             # Windows PowerShell
 ```
 
-脚本会拉起 Qdrant / Postgres / Redis，再启动后端和前端。
+- UI: http://localhost:5173
+- API docs: http://localhost:8000/docs
 
-- 前端：http://localhost:5173
-- API 文档：http://localhost:8000/docs
+The first account you register becomes **owner**.
 
-### 手动分步
+**Manual**
 
 ```bash
-# 1. 基础设施
 docker compose up -d qdrant postgres redis
-
-# 2. 后端
-cp .env.example .env
-uv sync
+cp .env.example .env && uv sync
 uv run uvicorn app.main:app --reload --port 8000
-
-# 3. 前端（另开终端）
+# other terminal
 cd frontend && npm install && npm run dev
 ```
 
-### Docker 全栈部署
+**Full stack**
 
 ```bash
 cp .env.example .env
 docker compose up -d --build
 ```
 
-访问 http://localhost 。生产环境务必把 `.env` 里的 `ZHIYUAN_JWT_SECRET` 改成随机长字符串。
+Open http://localhost. In production, set `ZHIYUAN_JWT_SECRET` to a long random string.
 
-## 配置
+### Configuration
 
-所有环境变量以 `ZHIYUAN_` 为前缀，见 [`.env.example`](.env.example)。必填项：
+Prefix: `ZHIYUAN_`. Full list: [`.env.example`](.env.example).
 
-| 变量 | 说明 |
+| Variable | Role |
 |---|---|
-| `ZHIYUAN_LLM_BASE_URL` / `API_KEY` / `MODEL` | 对话模型（OpenAI 兼容） |
-| `ZHIYUAN_EMBEDDING_BASE_URL` / `API_KEY` / `MODEL` | 向量模型 |
-| `ZHIYUAN_EMBEDDING_DIM` | 向量维度，须与模型输出一致（qwen3-embedding-8b 为 768） |
-| `ZHIYUAN_JWT_SECRET` | JWT 签名密钥，生产环境必须改 |
+| `ZHIYUAN_LLM_BASE_URL` / `API_KEY` / `MODEL` | Chat (OpenAI-compatible) |
+| `ZHIYUAN_EMBEDDING_BASE_URL` / `API_KEY` / `MODEL` | Embeddings |
+| `ZHIYUAN_EMBEDDING_DIM` | Must match the model (768 for qwen3-embedding-8b) |
+| `ZHIYUAN_JWT_SECRET` | Signing key; change in production |
 
-Langfuse 和 Redis 为可选；未配置时分别降级为 structlog 日志和内存直查。
+Langfuse and Redis are optional. Empty Langfuse → structlog only. Redis down → queries skip cache.
 
-## 权限模型
+### Roles
 
-| 角色 | 如何获得 | 能做什么 |
+| Role | How | Can |
 |---|---|---|
-| 站长 `owner` | 系统第一个注册用户 | 全部管理员能力 + 升降其他用户角色 |
-| 管理员 `admin` | 站长提升 | 上传 / 删除 / 重新摄入文档；管理普通用户 |
-| 普通用户 `user` | 后续注册 | 问答、查看自己的对话历史 |
+| Owner | First registration | Everything, including promote / demote |
+| Admin | Promoted by owner | Mutate documents; manage regular users |
+| User | Later registrations | Ask; own history only |
 
-管理员不能操作其他管理员或站长。站长角色不可被修改或删除。
+Admins cannot target other admins or the owner. Owner cannot be deleted or demoted.
 
-## 项目结构
+### Layout
+
+```
+app/
+  api/            Auth, Q&A, documents, conversations, admin users
+  auth/           JWT, passwords, FastAPI dependencies
+  ingestion/      Parsers, chunker, pipeline
+  rag/            Orchestration, prompts
+  retrieval/      Vector search, keyword rerank
+  storage/        Postgres models, Qdrant client
+  llm/            OpenAI-compatible chat client
+  embedding/      OpenAI-compatible embedding client
+frontend/         Vue 3 SPA
+scripts/          Dev launchers
+tests/            pytest
+```
+
+### Verification
+
+```bash
+uv run pytest tests/ -q
+cd frontend && npm run build
+```
+
+Do not commit `.env` or API keys.
+
+### Security and privacy
+
+Documents and conversations stay in your Postgres / Qdrant. Chat and embedding calls send the question and retrieved excerpts to the provider you configured. Report issues in GitHub Issues; do not paste keys or private documents.
+
+---
+
+## 知源
+
+上传文档、提问，回答从这些材料里流式生成。文件落在你自己的 Postgres 与 Qdrant 里。发给大模型的只有问题和检索到的片段。
+
+**状态：** 本地 / 开发环境可用。Docker Compose 覆盖前端、API、Qdrant、Postgres、Redis。测试 42 项通过。不是安装包，需自行部署。
+
+### 为什么做知源
+
+多数 RAG 演示停在「传个 PDF 再聊天」。知源按小型内部产品来做：账号、角色、对话不串用户、文档生命周期、一条 Compose 就能起全栈。
+
+| 知识问答 | 运维侧 |
+|---|---|
+| PDF / Word / PPT / Excel / Markdown / 源码 | JWT；第一个注册的人是站长 |
+| 解析 → 分块 → 向量化 → Qdrant | 管理员改知识库；普通用户只问答 |
+| 稠密检索 + 关键词重排 + SSE 生成 | 按用户隔离对话；缓存键含 `user_id` |
+| Vue 3 界面，Markdown 回答 | Redis 挂了自动跳过缓存 |
+
+### 能力
+
+- **摄入管线** — SHA-256 去重，状态机（`pending` → `indexed` / `failed`），失败或更新后可重新摄入。
+- **流式 RAG** — SSE；生成逻辑在 Pinia store，切路由不断流。
+- **隔离** — 对话与查询缓存按用户划分。换账号会清前端状态。
+- **角色** — `owner` / `admin` / `user`。站长可升降级。管理员不能动其他管理员和站长。
+- **OpenAI 兼容接口** — LLM 与 Embedding 的 URL 写在配置里。文档默认示例：step-3.7-flash、qwen3-embedding-8b（768 维）。
+- **Compose 部署** — nginx SPA + FastAPI + Qdrant + Postgres 16 + Redis 7。
+
+### 架构
+
+```
+浏览器 ──► nginx（Vue 3 SPA）──► FastAPI
+                                  │
+                     ┌────────────┼────────────┐
+                     ▼            ▼            ▼
+                  Postgres     Qdrant        Redis
+                 （用户、       （分块）      （查询缓存）
+                  文档、
+                  对话）
+                     │
+                     ▼
+               LLM / Embedding（OpenAI 兼容 HTTP）
+```
+
+**摄入：** `解析 → 分块 → 向量化 → 写入 Qdrant`，Postgres 记文档行。
+
+**提问：** `问题向量化 → Qdrant top-k → 关键词重排 → 拼 prompt → LLM SSE`。
+
+### 技术栈
+
+| 层 | 技术 |
+|---|---|
+| 后端 | FastAPI、SQLAlchemy 2（async）、Pydantic、JWT、bcrypt |
+| 前端 | Vue 3、Vite、Pinia、Vue Router、Tailwind CSS、marked |
+| 向量库 | Qdrant 1.12 |
+| 数据库 | PostgreSQL 16 |
+| 缓存 | Redis 7 |
+| 部署 | Docker Compose |
+
+Python `>=3.12,<3.14`。包管理：[uv](https://docs.astral.sh/uv/)。
+
+### 快速开始
+
+**环境：** Python 3.12、Node.js 20+、Docker Desktop、uv。
+
+```bash
+git clone https://github.com/dhanegle/zhiyuan-rag.git
+cd zhiyuan-rag
+cp .env.example .env          # 填写 LLM / Embedding 的 URL、密钥、模型名
+bash scripts/dev.sh           # Linux / macOS / Git Bash
+# 或
+.\scripts\dev.ps1             # Windows PowerShell
+```
+
+- 界面：http://localhost:5173
+- 接口文档：http://localhost:8000/docs
+
+第一个注册的账号是**站长**。
+
+**分步**
+
+```bash
+docker compose up -d qdrant postgres redis
+cp .env.example .env && uv sync
+uv run uvicorn app.main:app --reload --port 8000
+# 另开终端
+cd frontend && npm install && npm run dev
+```
+
+**全栈 Docker**
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+```
+
+打开 http://localhost。生产环境务必把 `ZHIYUAN_JWT_SECRET` 改成长随机串。
+
+### 配置
+
+前缀 `ZHIYUAN_`。完整列表见 [`.env.example`](.env.example)。
+
+| 变量 | 用途 |
+|---|---|
+| `ZHIYUAN_LLM_BASE_URL` / `API_KEY` / `MODEL` | 对话（OpenAI 兼容） |
+| `ZHIYUAN_EMBEDDING_BASE_URL` / `API_KEY` / `MODEL` | 向量 |
+| `ZHIYUAN_EMBEDDING_DIM` | 必须与模型一致（qwen3-embedding-8b 为 768） |
+| `ZHIYUAN_JWT_SECRET` | 签名密钥；生产必须改 |
+
+Langfuse、Redis 可选。Langfuse 留空则只用 structlog。Redis 不可用则跳过缓存。
+
+### 角色
+
+| 角色 | 来源 | 权限 |
+|---|---|---|
+| 站长 owner | 第一个注册 | 全部，含升降级 |
+| 管理员 admin | 站长提升 | 改文档；管普通用户 |
+| 普通用户 user | 之后注册 | 提问；只看自己的历史 |
+
+管理员不能操作其他管理员和站长。站长不能被删、不能被降级。
+
+### 目录
 
 ```
 app/
   api/            鉴权、问答、文档、对话、用户管理
-  auth/           JWT、密码、依赖注入
-  ingestion/      解析 / 分块 / 摄入管线
-  rag/            检索编排、prompt 构建
+  auth/           JWT、密码、FastAPI 依赖
+  ingestion/      解析、分块、摄入管线
+  rag/            编排、prompt
   retrieval/      向量检索、关键词重排
   storage/        Postgres 模型、Qdrant 客户端
-  llm/            OpenAI 兼容 LLM 客户端
-  embedding/      OpenAI 兼容 Embedding 客户端
-frontend/         Vue 3 单页应用
+  llm/            OpenAI 兼容对话客户端
+  embedding/      OpenAI 兼容向量客户端
+frontend/         Vue 3 前端
 scripts/          开发启动脚本
-tests/            pytest（42+）
+tests/            pytest
 ```
 
-## 测试
+### 验证
 
 ```bash
 uv run pytest tests/ -q
+cd frontend && npm run build
 ```
+
+不要提交 `.env` 和 API 密钥。
+
+### 安全与隐私
+
+文档和对话存在你的 Postgres / Qdrant。对话与向量请求会把问题和检索片段发给你配置的供应商。漏洞请走 GitHub Issues，不要贴密钥或内部文档。
