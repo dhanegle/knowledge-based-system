@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import delete as sa_delete, select
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import select
 
 from app.auth.dependencies import get_current_admin
 from app.auth.models import User

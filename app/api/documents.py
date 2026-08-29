@@ -6,7 +6,7 @@ import logging
 import pathlib
 import tempfile
 
-from fastapi import APIRouter, Depends, UploadFile, File
+from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy import select
 
 from app.auth.dependencies import get_current_admin, get_current_user

@@ -7,9 +7,10 @@ chunks 不存这里（在 Qdrant），这里只追踪文档级信息。
 from __future__ import annotations
 
 import enum
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from sqlalchemy import String, Text, DateTime, Integer, Enum as SAEnum
+from sqlalchemy import DateTime, Integer, String, Text
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -27,7 +28,7 @@ class Base(DeclarativeBase):
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Document(Base):
