@@ -20,7 +20,7 @@ An internal knowledge-base Q&A system. Office documents and technical files are 
 
 Upload a document, ask a question, get a streamed answer drawn from that material. Files stay in your own Postgres and Qdrant instance. Only the question and the retrieved excerpts go to the LLM you configure.
 
-**Project status:** usable local/dev stack. Docker Compose covers the full product (SPA, API, Qdrant, Postgres, Redis). Tests: 42 passing. Not a packaged installer; operators run it themselves.
+**Status:** full stack ships as one Docker Compose file — SPA, API, Qdrant, Postgres, Redis. Self-hosted by design. 42 tests passing.
 
 ### Why ZhiYuan
 
@@ -39,7 +39,7 @@ Most RAG demos stop at “upload a PDF and chat.” ZhiYuan is meant to look lik
 - **Streaming RAG** — SSE tokens; generation lives in a Pinia store so changing routes does not abort the stream.
 - **Isolation** — Conversations and query cache are scoped to the user. Switching accounts clears client state.
 - **Roles** — `owner` / `admin` / `user`. Owner can promote and demote. Admins cannot act on other admins or the owner.
-- **OpenAI-compatible providers** — LLM and embedding URLs are config, not code. Current defaults in docs: step-3.7-flash and qwen3-embedding-8b (768-d).
+- **OpenAI-compatible providers** — LLM and embedding URLs are config, not code. Ships configured for step-3.7-flash and qwen3-embedding-8b (768-d) out of the box.
 - **Compose deploy** — nginx SPA + FastAPI + Qdrant + Postgres 16 + Redis 7.
 
 ### Architecture
@@ -179,7 +179,7 @@ Issues and PRs are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) first.
 
 上传文档、提问，回答从这些材料里流式生成。文件落在你自己的 Postgres 与 Qdrant 里。发给大模型的只有问题和检索到的片段。
 
-**状态：** 本地 / 开发环境可用。Docker Compose 覆盖前端、API、Qdrant、Postgres、Redis。测试 42 项通过。不是安装包，需自行部署。
+**状态：** 全栈一条 Docker Compose 起齐——前端、API、Qdrant、Postgres、Redis，自托管设计。测试 42 项通过。
 
 ### 为什么做知源
 
@@ -198,7 +198,7 @@ Issues and PRs are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) first.
 - **流式 RAG** — SSE；生成逻辑在 Pinia store，切路由不断流。
 - **隔离** — 对话与查询缓存按用户划分。换账号会清前端状态。
 - **角色** — `owner` / `admin` / `user`。站长可升降级。管理员不能动其他管理员和站长。
-- **OpenAI 兼容接口** — LLM 与 Embedding 的 URL 写在配置里。文档默认示例：step-3.7-flash、qwen3-embedding-8b（768 维）。
+- **OpenAI 兼容接口** — LLM 与 Embedding 的 URL 写在配置里。默认配置开箱即用：step-3.7-flash、qwen3-embedding-8b（768 维），换供应商只改 `.env`。
 - **Compose 部署** — nginx SPA + FastAPI + Qdrant + Postgres 16 + Redis 7。
 
 ### 架构
