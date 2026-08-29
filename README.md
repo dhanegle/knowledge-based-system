@@ -1,5 +1,13 @@
 # 知源 ZhiYuan
 
+<p align="center">
+  <a href="https://github.com/dhanegle/zhiyuan-rag/actions/workflows/ci.yml"><img src="https://github.com/dhanegle/zhiyuan-rag/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/python-3.12-blue" alt="Python">
+  <img src="https://img.shields.io/badge/vue-3-42B883" alt="Vue 3">
+  <img src="https://img.shields.io/badge/deploy-docker%20compose-2496ED" alt="Docker Compose">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
+</p>
+
 [English](#zhiyuan) · [中文](#知源)
 
 An internal knowledge-base Q&A system. Office documents and technical files are ingested into a vector store; questions are answered with retrieval-augmented generation (RAG), grounded in the uploaded sources.
@@ -157,6 +165,14 @@ Do not commit `.env` or API keys.
 
 Documents and conversations stay in your Postgres / Qdrant. Chat and embedding calls send the question and retrieved excerpts to the provider you configured. Report issues in GitHub Issues; do not paste keys or private documents.
 
+### Contributing
+
+Issues and PRs are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) first.
+
+### License
+
+[MIT](LICENSE)
+
 ---
 
 ## 知源
@@ -307,3 +323,11 @@ cd frontend && npm run build
 ### 安全与隐私
 
 文档和对话存在你的 Postgres / Qdrant。对话与向量请求会把问题和检索片段发给你配置的供应商。漏洞请走 GitHub Issues，不要贴密钥或内部文档。
+
+### 贡献 / Contributing
+
+欢迎 Issue 与 PR，提交前请读 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+### License / 许可证
+
+[MIT](LICENSE)
