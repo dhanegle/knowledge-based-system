@@ -14,7 +14,7 @@ wheels/
 # Environment files (contain secrets)
 .env
 
-# Claude Code session data
+# AI 工具会话数据
 .claude/
 
 # Stray dev artifacts
