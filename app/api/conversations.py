@@ -7,7 +7,8 @@ import uuid
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy import select, delete as sa_delete, update
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import select, update
 
 from app.auth.dependencies import get_current_user
 from app.auth.models import User

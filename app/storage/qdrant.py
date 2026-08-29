@@ -8,17 +8,17 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import (
     Distance,
+    FieldCondition,
+    Filter,
+    MatchValue,
     PointStruct,
     VectorParams,
-    Filter,
-    FieldCondition,
-    MatchValue,
 )
 
 logger = logging.getLogger(__name__)

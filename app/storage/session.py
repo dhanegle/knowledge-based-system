@@ -21,6 +21,7 @@ def get_engine():
 async def init_db() -> None:
     """创建所有表（开发阶段用；生产用 Alembic 迁移）。"""
     from sqlalchemy.ext.asyncio import create_async_engine
+
     from app.config import settings
 
     engine = create_async_engine(settings.database_url)

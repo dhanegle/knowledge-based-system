@@ -39,7 +39,6 @@ class RerankerService:
         top_k: int = 5,
     ) -> list[RerankedChunk]:
         """对 chunks 重新打分并取 top_k。"""
-        ...
 
 
 class KeywordReranker(RerankerService):

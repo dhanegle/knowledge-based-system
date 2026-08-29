@@ -41,5 +41,12 @@ dev = [
 target-version = "py312"
 line-length = 100
 
+[tool.ruff.lint]
+ignore = [
+    "B008",   # FastAPI 的 Depends() 参数默认值是框架惯用法
+    "BLE001", # 缓存/鉴权/可观测路径故意宽捕获：可选组件挂掉必须降级而非中断
+    "S110",   # 同上：try-except-pass 是降级静默跳过的既定写法
+]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
