@@ -10,8 +10,8 @@ For larger features, please open an issue first to align on the design.
 **环境要求：** Python 3.12、Node.js 20+、Docker Desktop、[uv](https://docs.astral.sh/uv/)。
 
 ```bash
-git clone https://github.com/dhanegle/zhiyuan-rag.git
-cd zhiyuan-rag
+git clone https://github.com/dhanegle/knowledge-based-system.git
+cd knowledge-based-system
 cp .env.example .env          # 填写 LLM / Embedding 的 URL、密钥、模型名
 bash scripts/dev.sh           # Linux / macOS / Git Bash
 # 或 Windows PowerShell：
