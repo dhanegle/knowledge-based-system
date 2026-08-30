@@ -112,7 +112,8 @@ _embedding_service: EmbeddingService | None = None
 def get_embedding_service() -> EmbeddingService:
     """根据配置返回合适的 embedding 服务。
 
-    - 有 base_url + api_key + model → OpenAICompatibleEmbeddingService
+    - ZHIYUAN_EMBEDDING_BACKEND=langchain 且配置齐全 → LangChainEmbeddingService
+    - 配置齐全 → OpenAICompatibleEmbeddingService
     - 否则 → StubEmbeddingService（占位）
     """
     global _embedding_service
@@ -122,12 +123,23 @@ def get_embedding_service() -> EmbeddingService:
         return _embedding_service
 
     if settings.embedding_configured:
-        _embedding_service = OpenAICompatibleEmbeddingService(
-            base_url=settings.embedding_base_url,
-            api_key=settings.embedding_api_key,
-            model=settings.embedding_model,
-            dim=settings.embedding_dim,
-        )
+        if settings.embedding_backend == "langchain":
+            # 延迟导入：native 模式不必导入 langchain-openai
+            from app.embedding.langchain_service import LangChainEmbeddingService
+
+            _embedding_service = LangChainEmbeddingService(
+                base_url=settings.embedding_base_url,
+                api_key=settings.embedding_api_key,
+                model=settings.embedding_model,
+                dim=settings.embedding_dim,
+            )
+        else:
+            _embedding_service = OpenAICompatibleEmbeddingService(
+                base_url=settings.embedding_base_url,
+                api_key=settings.embedding_api_key,
+                model=settings.embedding_model,
+                dim=settings.embedding_dim,
+            )
     else:
         _embedding_service = StubEmbeddingService(dim=settings.embedding_dim)
 

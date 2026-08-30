@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,14 +18,20 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model: str = ""
 
+    # LLM 客户端实现：native（openai SDK 直连）或 langchain（ChatOpenAI 适配器）
+    llm_backend: Literal["native", "langchain"] = "native"
+
     llm_max_tokens: int = 4096
     llm_timeout: float = 120.0
 
-    # Embedding（暂未接入，等用户提供 URL+key）
+    # Embedding（OpenAI 兼容接口，URL+key 齐全即启用）
     embedding_base_url: str = ""
     embedding_api_key: str = ""
     embedding_model: str = ""
     embedding_dim: int = 1024
+
+    # Embedding 客户端实现：native（httpx 直连）或 langchain（OpenAIEmbeddings 适配器）
+    embedding_backend: Literal["native", "langchain"] = "native"
 
     # Qdrant
     qdrant_url: str = "http://localhost:6333"

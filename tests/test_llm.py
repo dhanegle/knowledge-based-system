@@ -95,3 +95,75 @@ async def test_strip_sdk_headers_replaces_user_agent():
 
     assert "x-stainless-lang" not in request.headers
     assert request.headers["user-agent"] == "zhiyuan/0.1"
+
+
+async def test_factory_returns_langchain_backend_when_configured(monkeypatch):
+    from app.llm.langchain_client import LangChainLLMClient
+
+    monkeypatch.setattr(settings, "llm_base_url", "https://example.test/v1")
+    monkeypatch.setattr(settings, "llm_api_key", "test-key")
+    monkeypatch.setattr(settings, "llm_model", "test-model")
+    monkeypatch.setattr(settings, "llm_backend", "langchain")
+
+    client = get_llm_client()
+    try:
+        assert isinstance(client, LangChainLLMClient)
+    finally:
+        await client.aclose()
+
+
+async def test_langchain_client_stream_builds_messages_and_yields_text(monkeypatch):
+    from langchain_openai import ChatOpenAI
+
+    from app.llm.langchain_client import LangChainLLMClient
+
+    client = LangChainLLMClient(
+        base_url="https://example.test/v1",
+        api_key="test-key",
+        model="test-model",
+    )
+    sent = []
+
+    # ChatOpenAI 是 pydantic 模型，方法只能打在类上（staticmethod 避免绑定 self）
+    async def fake_astream(messages, **kwargs):
+        sent.extend(messages)
+        for text in ("你好", "", "世界"):
+            yield SimpleNamespace(content=text)
+
+    monkeypatch.setattr(ChatOpenAI, "astream", staticmethod(fake_astream))
+
+    try:
+        result = await collect(
+            client.stream("问题", system_prompt="你是助手", context="文档片段")
+        )
+    finally:
+        await client.aclose()
+
+    assert result == ["你好", "世界"]
+    assert [m.type for m in sent] == ["system", "human"]
+    assert sent[0].content == "你是助手"
+    assert sent[1].content == "参考信息：\n文档片段\n\n问题：问题"
+
+
+async def test_langchain_client_handles_block_content(monkeypatch):
+    from langchain_openai import ChatOpenAI
+
+    from app.llm.langchain_client import LangChainLLMClient
+
+    client = LangChainLLMClient(
+        base_url="https://example.test/v1",
+        api_key="test-key",
+        model="test-model",
+    )
+
+    async def fake_astream(messages, **kwargs):
+        yield SimpleNamespace(content=[{"type": "text", "text": "片段A"}, {"text": "片段B"}])
+
+    monkeypatch.setattr(ChatOpenAI, "astream", staticmethod(fake_astream))
+
+    try:
+        result = await collect(client.stream("问题"))
+    finally:
+        await client.aclose()
+
+    assert result == ["片段A", "片段B"]

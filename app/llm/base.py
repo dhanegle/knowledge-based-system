@@ -118,13 +118,20 @@ class OpenAICompatibleLLMClient:
 def get_llm_client() -> LLMClient:
     """根据配置返回合适的 LLM 客户端。
 
-    - 有 base_url + api_key + model → OpenAICompatibleLLMClient
+    - ZHIYUAN_LLM_BACKEND=langchain 且配置齐全 → LangChainLLMClient（ChatOpenAI）
+    - 配置齐全 → OpenAICompatibleLLMClient
     - 否则 → StubLLMClient（占位）
     """
     from app.config import settings
 
-    if settings.llm_configured:
-        return OpenAICompatibleLLMClient(
+    if not settings.llm_configured:
+        return StubLLMClient()
+
+    if settings.llm_backend == "langchain":
+        # 延迟导入：native 模式不必付出 langchain-openai 的导入开销
+        from app.llm.langchain_client import LangChainLLMClient
+
+        return LangChainLLMClient(
             base_url=settings.llm_base_url,
             api_key=settings.llm_api_key,
             model=settings.llm_model,
@@ -132,4 +139,10 @@ def get_llm_client() -> LLMClient:
             timeout=settings.llm_timeout,
         )
 
-    return StubLLMClient()
+    return OpenAICompatibleLLMClient(
+        base_url=settings.llm_base_url,
+        api_key=settings.llm_api_key,
+        model=settings.llm_model,
+        max_tokens=settings.llm_max_tokens,
+        timeout=settings.llm_timeout,
+    )
