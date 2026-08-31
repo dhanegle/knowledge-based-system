@@ -1,7 +1,7 @@
 # 知源 ZhiYuan
 
 <p align="center">
-  <a href="https://github.com/dhanegle/knowledge-based-system/actions/workflows/ci.yml"><img src="https://github.com/dhanegle/knowledge-based-system/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/dhanegle/knowledge-based-system-zhiyuan/actions/workflows/ci.yml"><img src="https://github.com/dhanegle/knowledge-based-system-zhiyuan/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/python-3.12-blue" alt="Python">
   <img src="https://img.shields.io/badge/vue-3-42B883" alt="Vue 3">
   <img src="https://img.shields.io/badge/deploy-docker%20compose-2496ED" alt="Docker Compose">
@@ -19,7 +19,7 @@ An internal knowledge-base Q&A system. Office documents and technical files are 
 
 上传文档、提问，回答从这些材料里流式生成。文件落在你自己的 Postgres 与 Qdrant 里。发给大模型的只有问题和检索到的片段。
 
-**状态：** 全栈一条 Docker Compose 起齐——前端、API、Qdrant、Postgres、Redis，自托管设计。测试 42 项通过。
+**状态：** 全栈一条 Docker Compose 起齐——前端、API、Qdrant、Postgres、Redis，自托管设计。测试 54 项通过。
 
 ### 为什么做知源
 
@@ -39,6 +39,7 @@ An internal knowledge-base Q&A system. Office documents and technical files are 
 - **隔离** — 对话与查询缓存按用户划分。换账号会清前端状态。
 - **角色** — `owner` / `admin` / `user`。站长可升降级。管理员不能动其他管理员和站长。
 - **OpenAI 兼容接口** — LLM 与 Embedding 的 URL 写在配置里。默认配置开箱即用：step-3.7-flash、qwen3-embedding-8b（768 维），换供应商只改 `.env`。
+- **LangChain 双后端** — LLM 与 Embedding 各有原生直连与 LangChain（ChatOpenAI / OpenAIEmbeddings）两套实现，`ZHIYUAN_LLM_BACKEND` / `ZHIYUAN_EMBEDDING_BACKEND` 一键切换，行为等价、随时回退；生成段可走 LCEL 链并接入 Langfuse 整链追踪。
 - **Compose 部署** — nginx SPA + FastAPI + Qdrant + Postgres 16 + Redis 7。
 
 ### 架构
@@ -59,13 +60,13 @@ An internal knowledge-base Q&A system. Office documents and technical files are 
 
 **摄入：** `解析 → 分块 → 向量化 → 写入 Qdrant`，Postgres 记文档行。
 
-**提问：** `问题向量化 → Qdrant top-k → 关键词重排 → 拼 prompt → LLM SSE`。
+**提问：** `问题向量化 → Qdrant top-k → 关键词重排 → 拼 prompt → LLM SSE`（LangChain 后端时生成段为 LCEL 链）。
 
 ### 技术栈
 
 | 层 | 技术 |
 |---|---|
-| 后端 | FastAPI、SQLAlchemy 2（async）、Pydantic、JWT、bcrypt |
+| 后端 | FastAPI、SQLAlchemy 2（async）、Pydantic、JWT、bcrypt、LangChain（可选） |
 | 前端 | Vue 3、Vite、Pinia、Vue Router、Tailwind CSS、marked |
 | 向量库 | Qdrant 1.12 |
 | 数据库 | PostgreSQL 16 |
@@ -79,8 +80,8 @@ Python `>=3.12,<3.14`。包管理：[uv](https://docs.astral.sh/uv/)。
 **环境：** Python 3.12、Node.js 20+、Docker Desktop、uv。
 
 ```bash
-git clone https://github.com/dhanegle/knowledge-based-system.git
-cd knowledge-based-system
+git clone https://github.com/dhanegle/knowledge-based-system-zhiyuan.git
+cd knowledge-based-system-zhiyuan
 cp .env.example .env          # 填写 LLM / Embedding 的 URL、密钥、模型名
 bash scripts/dev.sh           # Linux / macOS / Git Bash
 # 或
@@ -120,9 +121,10 @@ docker compose up -d --build
 | `ZHIYUAN_LLM_BASE_URL` / `API_KEY` / `MODEL` | 对话（OpenAI 兼容） |
 | `ZHIYUAN_EMBEDDING_BASE_URL` / `API_KEY` / `MODEL` | 向量 |
 | `ZHIYUAN_EMBEDDING_DIM` | 必须与模型一致（qwen3-embedding-8b 为 768） |
+| `ZHIYUAN_LLM_BACKEND` / `ZHIYUAN_EMBEDDING_BACKEND` | `native`（默认，SDK 直连）或 `langchain`，两套实现行为等价 |
 | `ZHIYUAN_JWT_SECRET` | 签名密钥；生产必须改 |
 
-Langfuse、Redis 可选。Langfuse 留空则只用 structlog。Redis 不可用则跳过缓存。
+Langfuse、Redis 可选。Langfuse 留空则只用 structlog；配置齐全且 LLM 后端为 `langchain` 时，RAG 整链自动上报 trace。Redis 不可用则跳过缓存。
 
 ### 角色
 
@@ -142,7 +144,7 @@ app/
   auth/           JWT、密码、FastAPI 依赖
   ingestion/      解析、分块、摄入管线
   rag/            编排、prompt
-  retrieval/      向量检索、关键词重排
+  retrieval/      向量检索、关键词重排、LangChain Retriever
   storage/        Postgres 模型、Qdrant 客户端
   llm/            OpenAI 兼容对话客户端
   embedding/      OpenAI 兼容向量客户端
@@ -178,7 +180,7 @@ cd frontend && npm run build
 
 Upload a document, ask a question, get a streamed answer drawn from that material. Files stay in your own Postgres and Qdrant instance. Only the question and the retrieved excerpts go to the LLM you configure.
 
-**Status:** full stack ships as one Docker Compose file — SPA, API, Qdrant, Postgres, Redis. Self-hosted by design. 42 tests passing.
+**Status:** full stack ships as one Docker Compose file — SPA, API, Qdrant, Postgres, Redis. Self-hosted by design. 54 tests passing.
 
 ### Why ZhiYuan
 
@@ -198,6 +200,7 @@ Most RAG demos stop at “upload a PDF and chat.” ZhiYuan is meant to look lik
 - **Isolation** — Conversations and query cache are scoped to the user. Switching accounts clears client state.
 - **Roles** — `owner` / `admin` / `user`. Owner can promote and demote. Admins cannot act on other admins or the owner.
 - **OpenAI-compatible providers** — LLM and embedding URLs are config, not code. Ships configured for step-3.7-flash and qwen3-embedding-8b (768-d) out of the box.
+- **Dual backends** — LLM and embedding each ship as a native implementation plus a LangChain adapter (ChatOpenAI / OpenAIEmbeddings); one env var switches them, behavior-identical and instantly revertible. Generation can run as an LCEL chain with full-chain Langfuse tracing.
 - **Compose deploy** — nginx SPA + FastAPI + Qdrant + Postgres 16 + Redis 7.
 
 ### Architecture
@@ -218,13 +221,13 @@ Browser ──► nginx (Vue 3 SPA) ──► FastAPI
 
 **Ingest:** `parse → chunk → embed → Qdrant upsert`, document row in Postgres.
 
-**Ask:** `embed(question) → Qdrant top-k → keyword rerank → prompt → LLM SSE`.
+**Ask:** `embed(question) → Qdrant top-k → keyword rerank → prompt → LLM SSE` (LCEL chain for generation when the LangChain backend is on).
 
 ### Stack
 
 | Layer | Tech |
 |---|---|
-| Backend | FastAPI, SQLAlchemy 2 (async), Pydantic, JWT, bcrypt |
+| Backend | FastAPI, SQLAlchemy 2 (async), Pydantic, JWT, bcrypt, LangChain (optional) |
 | Frontend | Vue 3, Vite, Pinia, Vue Router, Tailwind CSS, marked |
 | Vectors | Qdrant 1.12 |
 | Database | PostgreSQL 16 |
@@ -238,8 +241,8 @@ Python `>=3.12,<3.14`. Package manager: [uv](https://docs.astral.sh/uv/).
 **Prerequisites:** Python 3.12, Node.js 20+, Docker Desktop, uv.
 
 ```bash
-git clone https://github.com/dhanegle/knowledge-based-system.git
-cd knowledge-based-system
+git clone https://github.com/dhanegle/knowledge-based-system-zhiyuan.git
+cd knowledge-based-system-zhiyuan
 cp .env.example .env          # set LLM and embedding URL / key / model
 bash scripts/dev.sh           # Linux / macOS / Git Bash
 # or
@@ -279,9 +282,10 @@ Prefix: `ZHIYUAN_`. Full list: [`.env.example`](.env.example).
 | `ZHIYUAN_LLM_BASE_URL` / `API_KEY` / `MODEL` | Chat (OpenAI-compatible) |
 | `ZHIYUAN_EMBEDDING_BASE_URL` / `API_KEY` / `MODEL` | Embeddings |
 | `ZHIYUAN_EMBEDDING_DIM` | Must match the model (768 for qwen3-embedding-8b) |
+| `ZHIYUAN_LLM_BACKEND` / `ZHIYUAN_EMBEDDING_BACKEND` | `native` (default, direct SDK) or `langchain`; both implementations behave identically |
 | `ZHIYUAN_JWT_SECRET` | Signing key; change in production |
 
-Langfuse and Redis are optional. Empty Langfuse → structlog only. Redis down → queries skip cache.
+Langfuse and Redis are optional. Empty Langfuse → structlog only; with Langfuse keys set and the LangChain LLM backend enabled, the whole RAG chain is traced automatically. Redis down → queries skip cache.
 
 ### Roles
 
@@ -301,7 +305,7 @@ app/
   auth/           JWT, passwords, FastAPI dependencies
   ingestion/      Parsers, chunker, pipeline
   rag/            Orchestration, prompts
-  retrieval/      Vector search, keyword rerank
+  retrieval/      Vector search, keyword rerank, LangChain Retriever
   storage/        Postgres models, Qdrant client
   llm/            OpenAI-compatible chat client
   embedding/      OpenAI-compatible embedding client
