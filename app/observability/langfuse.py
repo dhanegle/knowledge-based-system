@@ -111,3 +111,49 @@ def trace_span(name: str):
         return sync_wrapper
 
     return decorator
+
+
+_langchain_handler: Any | None = None
+_langchain_handler_checked = False
+
+
+def get_langchain_callback_handler():
+    """返回 Langfuse 的 LangChain CallbackHandler，未配置或未安装时返回 None。
+
+    供 LCEL 链路挂在 config 的 callbacks 上，整条链自动上报 trace。
+    v3 的 CallbackHandler 只收 public_key，secret_key 和 host 走环境变量。
+    """
+    global _langchain_handler, _langchain_handler_checked
+    if _langchain_handler_checked:
+        return _langchain_handler
+    _langchain_handler_checked = True
+
+    if not (settings.langfuse_base_url and settings.langfuse_public_key and settings.langfuse_secret_key):
+        return None
+
+    try:
+        import os
+
+        os.environ["LANGFUSE_PUBLIC_KEY"] = settings.langfuse_public_key
+        os.environ["LANGFUSE_SECRET_KEY"] = settings.langfuse_secret_key
+        os.environ["LANGFUSE_HOST"] = settings.langfuse_base_url
+
+        from langfuse.langchain import CallbackHandler
+
+        _langchain_handler = CallbackHandler(public_key=settings.langfuse_public_key)
+        logger.info("langfuse_langchain_handler_enabled", base_url=settings.langfuse_base_url)
+    except ImportError:
+        logger.warning("langfuse_not_installed")
+        _langchain_handler = None
+    except Exception as e:
+        logger.warning("langfuse_handler_init_failed", error=str(e))
+        _langchain_handler = None
+
+    return _langchain_handler
+
+
+def reset_langchain_callback_handler() -> None:
+    """重置 handler 缓存。供测试或运行中修改 Langfuse 配置后调用。"""
+    global _langchain_handler, _langchain_handler_checked
+    _langchain_handler = None
+    _langchain_handler_checked = False

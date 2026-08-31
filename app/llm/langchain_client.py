@@ -44,6 +44,11 @@ class LangChainLLMClient:
             http_async_client=self._http,
         )
 
+    @property
+    def chat_model(self) -> ChatOpenAI:
+        """暴露底层 ChatOpenAI，供 RAGService 在 LangChain 后端时组装 LCEL 链。"""
+        return self._llm
+
     async def stream(
         self,
         question: str,

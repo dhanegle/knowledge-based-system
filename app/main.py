@@ -22,7 +22,9 @@ async def lifespan(app: FastAPI):
     qdrant = get_qdrant_store()
     try:
         await qdrant.ensure_collection()
-        rag_service = RAGService(llm_client=client)
+        rag_service = RAGService(
+            llm_client=client, chat_model=getattr(client, "chat_model", None)
+        )
     except Exception:
         rag_service = None
     app.state.rag_service = rag_service

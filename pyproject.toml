@@ -29,6 +29,8 @@ dependencies = [
     "bcrypt>=4.0.0",
     "redis>=5.0.0",
     "langchain-openai>=0.3,<0.4",
+    "langfuse>=3,<4",
+    "langchain>=1,<2",
 ]
 
 [dependency-groups]
