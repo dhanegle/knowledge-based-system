@@ -79,10 +79,7 @@ class DocumentParser:
                 parts.append(para.text)
 
         for table in doc.tables:
-            for row in table.rows:
-                row_text = " | ".join(cell.text.strip() for cell in row.cells)
-                if row_text.strip():
-                    parts.append(row_text)
+            parts.extend(self._table_to_lines(table))
         return "\n".join(parts)
 
     def _extract_pptx(self, path: Path) -> str:
@@ -93,7 +90,11 @@ class DocumentParser:
         for i, slide in enumerate(prs.slides, 1):
             slide_texts: list[str] = []
             for shape in slide.shapes:
-                if hasattr(shape, "text") and shape.text.strip():
+                # 表格/图表是 GraphicFrame 容器，没有 .text 属性，
+                # 不单独处理会被静默跳过
+                if shape.has_table:
+                    slide_texts.extend(self._table_to_lines(shape.table))
+                elif hasattr(shape, "text") and shape.text.strip():
                     slide_texts.append(shape.text)
             if slide_texts:
                 parts.append(f"--- 第 {i} 页 ---\n" + "\n".join(slide_texts))
@@ -105,12 +106,55 @@ class DocumentParser:
         wb = load_workbook(str(path), read_only=True, data_only=True)
         parts: list[str] = []
         for ws in wb.worksheets:
-            for row in ws.iter_rows(values_only=True):
-                row_text = " | ".join(str(cell) for cell in row if cell is not None)
-                if row_text.strip():
-                    parts.append(row_text)
+            lines = self._worksheet_to_lines(ws)
+            if lines:
+                parts.append("\n".join(lines))
         wb.close()
         return "\n".join(parts)
+
+    @staticmethod
+    def _table_to_lines(table) -> list[str]:
+        """表格逐行转 '单元格 | 单元格' 文本，保住行内列对应关系（docx/pptx 通用）。"""
+        lines: list[str] = []
+        for row in table.rows:
+            row_text = " | ".join(cell.text.strip() for cell in row.cells)
+            if row_text.strip():
+                lines.append(row_text)
+        return lines
+
+    @staticmethod
+    def _worksheet_to_lines(ws) -> list[str]:
+        """工作表转文本：sheet 名进每行前缀；首个非空行视为表头，
+        数据行尽量对齐成 "列名: 值"，让分块后的片段自带列语义，
+        不再依赖表头与数据恰好被分进同一个块。"""
+        prefix = f"[工作表 {ws.title}] "
+        lines: list[str] = []
+        header: list[str] = []
+
+        for row in ws.iter_rows(values_only=True):
+            # 按列位置收集非空单元格，避免过滤 None 后错位
+            cells = [
+                (i, str(c).strip())
+                for i, c in enumerate(row)
+                if c is not None and str(c).strip()
+            ]
+            if not cells:
+                continue
+
+            if not header:
+                header = [""] * (max(i for i, _ in cells) + 1)
+                for i, v in cells:
+                    header[i] = v
+                lines.append(prefix + "表头: " + " | ".join(v for v in header if v))
+                continue
+
+            body = " | ".join(
+                f"{header[i]}: {v}" if i < len(header) and header[i] else v
+                for i, v in cells
+            )
+            lines.append(prefix + body)
+
+        return lines
 
     def _extract_text(self, path: Path) -> str:
         """Markdown、纯文本、代码文件统一用 UTF-8 读取。"""
