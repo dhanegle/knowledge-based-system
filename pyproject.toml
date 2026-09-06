@@ -19,7 +19,6 @@ dependencies = [
     "qdrant-client>=1.12.0",
     "sqlalchemy[asyncio]>=2.0.0",
     "aiosqlite>=0.20.0",
-    "pypdf>=5.0.0",
     "python-docx>=1.1.0",
     "python-pptx>=0.6.23",
     "openpyxl>=3.1.0",
@@ -31,6 +30,7 @@ dependencies = [
     "langchain-openai>=0.3,<0.4",
     "langfuse>=3,<4",
     "langchain>=1,<2",
+    "pdfplumber>=0.11.10",
 ]
 
 [dependency-groups]

@@ -19,7 +19,7 @@ An internal knowledge-base Q&A system. Office documents and technical files are 
 
 上传文档、提问，回答从这些材料里流式生成。文件落在你自己的 Postgres 与 Qdrant 里。发给大模型的只有问题和检索到的片段。
 
-**状态：** 全栈一条 Docker Compose 起齐——前端、API、Qdrant、Postgres、Redis，自托管设计。测试 54 项通过。
+**状态：** 全栈一条 Docker Compose 起齐——前端、API、Qdrant、Postgres、Redis，自托管设计。测试 60 项通过。
 
 ### 为什么做知源
 
@@ -180,7 +180,7 @@ cd frontend && npm run build
 
 Upload a document, ask a question, get a streamed answer drawn from that material. Files stay in your own Postgres and Qdrant instance. Only the question and the retrieved excerpts go to the LLM you configure.
 
-**Status:** full stack ships as one Docker Compose file — SPA, API, Qdrant, Postgres, Redis. Self-hosted by design. 54 tests passing.
+**Status:** full stack ships as one Docker Compose file — SPA, API, Qdrant, Postgres, Redis. Self-hosted by design. 60 tests passing.
 
 ### Why ZhiYuan
 

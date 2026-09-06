@@ -20,6 +20,7 @@ def get_engine():
 
 async def init_db() -> None:
     """创建所有表（开发阶段用；生产用 Alembic 迁移）。"""
+    from sqlalchemy import text
     from sqlalchemy.ext.asyncio import create_async_engine
 
     from app.config import settings
@@ -27,6 +28,11 @@ async def init_db() -> None:
     engine = create_async_engine(settings.database_url)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # create_all 不会给已存在的表加列，老库需要补列
+        if engine.dialect.name == "postgresql":
+            await conn.execute(text(
+                "ALTER TABLE documents ADD COLUMN IF NOT EXISTS extraction_notes TEXT"
+            ))
     await engine.dispose()
 
 

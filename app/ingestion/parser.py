@@ -2,12 +2,17 @@
 
 支持格式：PDF / Word(.docx) / PPT(.pptx) / Excel(.xlsx) / Markdown / 纯文本 / 代码。
 每种格式用对应的库解析，返回统一的 Document 结构。
+
+表格统一转成 "单元格 | 单元格" 的行文本，保住行内列对应关系。
+PDF 用 pdfplumber：表格按线框识别为结构化行，表格区域的字符从正文剔除
+（否则同一段内容会以乱序文本流和结构化行重复出现）；纯图片页记入
+image_only_pages，如实暴露"扫描件/图片内容未提取"。
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -25,6 +30,25 @@ class ParsedDocument:
     filename: str
     file_type: str          # 扩展名，如 ".pdf"
     pages: list[str]        # 按页分割的文本（PDF/PPT 有页概念；其他格式整篇为 1 页）
+    # 有图无文的页码（1-based，扫描件或纯图片页），文字未提取
+    image_only_pages: list[int] = field(default_factory=list)
+
+
+def _clean_cell(value) -> str:
+    """表格单元格文本压成单行，None 视为空。"""
+    if value is None:
+        return ""
+    return str(value).replace("\n", " ").strip()
+
+
+def _obj_in_bboxes(obj: dict, bboxes: list[tuple]) -> bool:
+    """按对象中心点判断是否落在任一表格框内（容差 1pt）。"""
+    cx = (obj["x0"] + obj["x1"]) / 2
+    cy = (obj["top"] + obj["bottom"]) / 2
+    return any(
+        x0 - 1 <= cx <= x1 + 1 and top - 1 <= cy <= bottom + 1
+        for x0, top, x1, bottom in bboxes
+    )
 
 
 class DocumentParser:
@@ -39,14 +63,22 @@ class DocumentParser:
         if ext not in SUPPORTED_EXTENSIONS:
             raise ValueError(f"不支持的文件格式: {ext}（支持: {', '.join(sorted(SUPPORTED_EXTENSIONS))}）")
 
-        text = self._extract(path, ext)
+        text, image_only_pages = self._extract(path, ext)
         pages = self._split_pages(text, ext)
+        if image_only_pages:
+            logger.warning("%s 含纯图片页（文字未提取）: %s", path.name, image_only_pages)
 
         logger.info("解析完成 %s (%s) → %d 页, %d 字符",
                      path.name, ext, len(pages), sum(len(p) for p in pages))
-        return ParsedDocument(filename=path.name, file_type=ext, pages=pages)
+        return ParsedDocument(
+            filename=path.name,
+            file_type=ext,
+            pages=pages,
+            image_only_pages=image_only_pages,
+        )
 
-    def _extract(self, path: Path, ext: str) -> str:
+    def _extract(self, path: Path, ext: str) -> tuple[str, list[int]]:
+        """提取文本，返回 (全文, 纯图片页码列表)。"""
         extractors = {
             ".pdf": self._extract_pdf,
             ".docx": self._extract_docx,
@@ -56,20 +88,51 @@ class DocumentParser:
         extractor = extractors.get(ext, self._extract_text)
         return extractor(path)
 
-    def _extract_pdf(self, path: Path) -> str:
-        from pypdf import PdfReader
+    def _extract_pdf(self, path: Path) -> tuple[str, list[int]]:
+        import pdfplumber
 
-        reader = PdfReader(str(path))
         parts: list[str] = []
-        for i, page in enumerate(reader.pages, 1):
-            text = page.extract_text() or ""
-            if text.strip():
-                parts.append(f"--- 第 {i} 页 ---\n{text}")
-            else:
-                logger.warning("%s 第 %d 页无文本（可能是扫描件，需要 OCR）", path.name, i)
-        return "\n\n".join(parts)
+        image_only_pages: list[int] = []
 
-    def _extract_docx(self, path: Path) -> str:
+        with pdfplumber.open(str(path)) as pdf:
+            for i, page in enumerate(pdf.pages, 1):
+                segments: list[str] = []
+                try:
+                    tables = page.find_tables()
+                    if tables:
+                        # 表格区域内的字符从正文剔除，避免内容重复
+                        bboxes = [t.bbox for t in tables]
+                        text = page.filter(
+                            lambda obj, boxes=bboxes: not _obj_in_bboxes(obj, boxes)
+                        ).extract_text() or ""
+                    else:
+                        text = page.extract_text() or ""
+                    if text.strip():
+                        segments.append(text.strip())
+                    for table in tables:
+                        rows = [
+                            " | ".join(_clean_cell(c) for c in row)
+                            for row in table.extract()
+                        ]
+                        rows = [r for r in rows if r.strip(" |")]
+                        if rows:
+                            segments.append("[表格]\n" + "\n".join(rows))
+                except Exception:
+                    logger.warning(
+                        "%s 第 %d 页结构化提取异常，跳过表格仅尽力保留文本",
+                        path.name, i, exc_info=True,
+                    )
+
+                if not segments:
+                    if page.images:
+                        image_only_pages.append(i)
+                    logger.warning("%s 第 %d 页无文本（可能是扫描件，需要 OCR）", path.name, i)
+                    continue
+                parts.append(f"--- 第 {i} 页 ---\n" + "\n\n".join(segments))
+
+        return "\n\n".join(parts), image_only_pages
+
+    def _extract_docx(self, path: Path) -> tuple[str, list[int]]:
         from docx import Document as DocxDocument
 
         doc = DocxDocument(str(path))
@@ -80,15 +143,18 @@ class DocumentParser:
 
         for table in doc.tables:
             parts.extend(self._table_to_lines(table))
-        return "\n".join(parts)
+        return "\n".join(parts), []
 
-    def _extract_pptx(self, path: Path) -> str:
+    def _extract_pptx(self, path: Path) -> tuple[str, list[int]]:
         from pptx import Presentation
+        from pptx.enum.shapes import MSO_SHAPE_TYPE
 
         prs = Presentation(str(path))
         parts: list[str] = []
+        image_only_pages: list[int] = []
         for i, slide in enumerate(prs.slides, 1):
             slide_texts: list[str] = []
+            has_picture = False
             for shape in slide.shapes:
                 # 表格/图表是 GraphicFrame 容器，没有 .text 属性，
                 # 不单独处理会被静默跳过
@@ -96,11 +162,16 @@ class DocumentParser:
                     slide_texts.extend(self._table_to_lines(shape.table))
                 elif hasattr(shape, "text") and shape.text.strip():
                     slide_texts.append(shape.text)
+                if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
+                    has_picture = True
             if slide_texts:
                 parts.append(f"--- 第 {i} 页 ---\n" + "\n".join(slide_texts))
-        return "\n\n".join(parts)
+            elif has_picture:
+                image_only_pages.append(i)
+                logger.warning("%s 第 %d 页只有图片，文字未提取", path.name, i)
+        return "\n\n".join(parts), image_only_pages
 
-    def _extract_xlsx(self, path: Path) -> str:
+    def _extract_xlsx(self, path: Path) -> tuple[str, list[int]]:
         from openpyxl import load_workbook
 
         wb = load_workbook(str(path), read_only=True, data_only=True)
@@ -110,7 +181,22 @@ class DocumentParser:
             if lines:
                 parts.append("\n".join(lines))
         wb.close()
-        return "\n".join(parts)
+        return "\n".join(parts), []
+
+    def _extract_text(self, path: Path) -> tuple[str, list[int]]:
+        """Markdown、纯文本、代码文件统一用 UTF-8 读取。"""
+        return path.read_text(encoding="utf-8", errors="replace"), []
+
+    def _split_pages(self, text: str, ext: str) -> list[str]:
+        """PDF 和 PPT 用 --- 第 N 页 --- 标记分页；其他格式整篇为 1 页。"""
+        if ext in (".pdf", ".pptx"):
+            import re
+            if not text.strip():
+                return []
+            pages = re.split(r"^--- 第 \d+ 页 ---$", text, flags=re.MULTILINE)
+            pages = [p.strip() for p in pages if p.strip()]
+            return pages or [text]
+        return [text] if text.strip() else []
 
     @staticmethod
     def _table_to_lines(table) -> list[str]:
@@ -155,16 +241,3 @@ class DocumentParser:
             lines.append(prefix + body)
 
         return lines
-
-    def _extract_text(self, path: Path) -> str:
-        """Markdown、纯文本、代码文件统一用 UTF-8 读取。"""
-        return path.read_text(encoding="utf-8", errors="replace")
-
-    def _split_pages(self, text: str, ext: str) -> list[str]:
-        """PDF 和 PPT 用 --- 第 N 页 --- 标记分页；其他格式整篇为 1 页。"""
-        if ext in (".pdf", ".pptx"):
-            import re
-            pages = re.split(r"^--- 第 \d+ 页 ---$", text, flags=re.MULTILINE)
-            pages = [p.strip() for p in pages if p.strip()]
-            return pages or [text]
-        return [text] if text.strip() else []
