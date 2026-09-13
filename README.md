@@ -19,7 +19,7 @@ An internal knowledge-base Q&A system. Office documents and technical files are 
 
 上传文档、提问，回答从这些材料里流式生成。文件落在你自己的 Postgres 与 Qdrant 里。发给大模型的只有问题和检索到的片段。
 
-**状态：** 全栈一条 Docker Compose 起齐——前端、API、Qdrant、Postgres、Redis，自托管设计。测试 60 项通过。
+**状态：** 全栈一条 Docker Compose 起齐——前端、API、Qdrant、Postgres、Redis，自托管设计。测试 68 项通过。
 
 ### 为什么做知源
 
@@ -29,7 +29,7 @@ An internal knowledge-base Q&A system. Office documents and technical files are 
 |---|---|
 | PDF / Word / PPT / Excel / Markdown / 源码 | JWT；第一个注册的人是站长 |
 | 解析 → 分块 → 向量化 → Qdrant | 管理员改知识库；普通用户只问答 |
-| 稠密检索 + 关键词重排 + SSE 生成 | 按用户隔离对话；缓存键含 `user_id` |
+| 稠密检索 + 重排（关键词 / 交叉编码器）+ SSE 生成 | 按用户隔离对话；缓存键含 `user_id` |
 | Vue 3 界面，Markdown 回答 | Redis 挂了自动跳过缓存 |
 
 ### 能力
@@ -40,6 +40,8 @@ An internal knowledge-base Q&A system. Office documents and technical files are 
 - **角色** — `owner` / `admin` / `user`。站长可升降级。管理员不能动其他管理员和站长。
 - **OpenAI 兼容接口** — LLM 与 Embedding 的 URL 写在配置里。默认配置开箱即用：step-3.7-flash、qwen3-embedding-8b（768 维），换供应商只改 `.env`。
 - **LangChain 双后端** — LLM 与 Embedding 各有原生直连与 LangChain（ChatOpenAI / OpenAIEmbeddings）两套实现，`ZHIYUAN_LLM_BACKEND` / `ZHIYUAN_EMBEDDING_BACKEND` 一键切换，行为等价、随时回退；生成段可走 LCEL 链并接入 Langfuse 整链追踪。
+- **重排两档可选** — 默认关键词重排（纯本地计算、零外部依赖）；把 `ZHIYUAN_RERANK_BACKEND` 设为 `model` 并填好 `/rerank` 兼容接口，即换成交叉编码器（Cohere / Jina / SiliconFlow / TEI 形状通用），精度更高。未配齐或调用失败自动降级为关键词重排，不会让问答报错。
+- **图片页视觉识别** — 扫描件 PDF 与纯图 PPT 页自动发给视觉模型提取文字、描述图表（step-3.7-flash 实测可用），识别文本并入对应页正常入库；已识别与未提取在文档详情如实分开标注，单文档识别次数可配额控制。
 - **Compose 部署** — nginx SPA + FastAPI + Qdrant + Postgres 16 + Redis 7。
 
 ### 架构
@@ -58,7 +60,7 @@ An internal knowledge-base Q&A system. Office documents and technical files are 
                LLM / Embedding（OpenAI 兼容 HTTP）
 ```
 
-**摄入：** `解析 → 分块 → 向量化 → 写入 Qdrant`，Postgres 记文档行。
+**摄入：** `解析（表格结构化、图片页视觉识别）→ 分块 → 向量化 → 写入 Qdrant`，Postgres 记文档行。
 
 **提问：** `问题向量化 → Qdrant top-k → 关键词重排 → 拼 prompt → LLM SSE`（LangChain 后端时生成段为 LCEL 链）。
 
@@ -122,6 +124,9 @@ docker compose up -d --build
 | `ZHIYUAN_EMBEDDING_BASE_URL` / `API_KEY` / `MODEL` | 向量 |
 | `ZHIYUAN_EMBEDDING_DIM` | 必须与模型一致（qwen3-embedding-8b 为 768） |
 | `ZHIYUAN_LLM_BACKEND` / `ZHIYUAN_EMBEDDING_BACKEND` | `native`（默认，SDK 直连）或 `langchain`，两套实现行为等价 |
+| `ZHIYUAN_RERANK_BACKEND` | `keyword`（默认，本地计算）或 `model`（交叉编码器） |
+| `ZHIYUAN_RERANK_BASE_URL` / `API_KEY` / `MODEL` | 选 `model` 时三项必须填齐；走通用 `POST {BASE_URL}/rerank` |
+| `ZHIYUAN_VISION_MODEL` / `ZHIYUAN_VISION_MAX_PAGES` | 图片页识别模型（留空用 LLM 模型，需支持视觉输入）/ 单文档识别次数上限 |
 | `ZHIYUAN_JWT_SECRET` | 签名密钥；生产必须改 |
 
 Langfuse、Redis 可选。Langfuse 留空则只用 structlog；配置齐全且 LLM 后端为 `langchain` 时，RAG 整链自动上报 trace。Redis 不可用则跳过缓存。
@@ -142,11 +147,11 @@ Langfuse、Redis 可选。Langfuse 留空则只用 structlog；配置齐全且 L
 app/
   api/            鉴权、问答、文档、对话、用户管理
   auth/           JWT、密码、FastAPI 依赖
-  ingestion/      解析、分块、摄入管线
+  ingestion/      解析、分块、图片页取图、摄入管线
   rag/            编排、prompt
   retrieval/      向量检索、关键词重排、LangChain Retriever
   storage/        Postgres 模型、Qdrant 客户端
-  llm/            OpenAI 兼容对话客户端
+  llm/            OpenAI 兼容对话与视觉识别客户端
   embedding/      OpenAI 兼容向量客户端
 frontend/         Vue 3 前端
 scripts/          开发启动脚本
@@ -180,7 +185,7 @@ cd frontend && npm run build
 
 Upload a document, ask a question, get a streamed answer drawn from that material. Files stay in your own Postgres and Qdrant instance. Only the question and the retrieved excerpts go to the LLM you configure.
 
-**Status:** full stack ships as one Docker Compose file — SPA, API, Qdrant, Postgres, Redis. Self-hosted by design. 60 tests passing.
+**Status:** full stack ships as one Docker Compose file — SPA, API, Qdrant, Postgres, Redis. Self-hosted by design. 68 tests passing.
 
 ### Why ZhiYuan
 
@@ -201,6 +206,8 @@ Most RAG demos stop at “upload a PDF and chat.” ZhiYuan is meant to look lik
 - **Roles** — `owner` / `admin` / `user`. Owner can promote and demote. Admins cannot act on other admins or the owner.
 - **OpenAI-compatible providers** — LLM and embedding URLs are config, not code. Ships configured for step-3.7-flash and qwen3-embedding-8b (768-d) out of the box.
 - **Dual backends** — LLM and embedding each ship as a native implementation plus a LangChain adapter (ChatOpenAI / OpenAIEmbeddings); one env var switches them, behavior-identical and instantly revertible. Generation can run as an LCEL chain with full-chain Langfuse tracing.
+- **Two rerank tiers** — keyword reranking by default (pure local, zero external deps); set `ZHIYUAN_RERANK_BACKEND=model` plus a `/rerank`-compatible endpoint to switch to a cross-encoder (Cohere / Jina / SiliconFlow / TEI shape). Unconfigured or failing calls degrade to keyword reranking rather than erroring the query.
+- **Vision for image pages** — Scanned PDF pages and picture-only PPT slides are sent to a vision model to extract text and describe diagrams (verified with step-3.7-flash); recognized text is embedded into the matching page like any other content. Recognized vs. unextracted pages are reported per document, with a per-document request cap.
 - **Compose deploy** — nginx SPA + FastAPI + Qdrant + Postgres 16 + Redis 7.
 
 ### Architecture
@@ -219,7 +226,7 @@ Browser ──► nginx (Vue 3 SPA) ──► FastAPI
                 LLM / Embedding  (OpenAI-compatible HTTP)
 ```
 
-**Ingest:** `parse → chunk → embed → Qdrant upsert`, document row in Postgres.
+**Ingest:** `parse (structured tables, vision recognition of image pages) → chunk → embed → Qdrant upsert`, document row in Postgres.
 
 **Ask:** `embed(question) → Qdrant top-k → keyword rerank → prompt → LLM SSE` (LCEL chain for generation when the LangChain backend is on).
 
@@ -283,6 +290,9 @@ Prefix: `ZHIYUAN_`. Full list: [`.env.example`](.env.example).
 | `ZHIYUAN_EMBEDDING_BASE_URL` / `API_KEY` / `MODEL` | Embeddings |
 | `ZHIYUAN_EMBEDDING_DIM` | Must match the model (768 for qwen3-embedding-8b) |
 | `ZHIYUAN_LLM_BACKEND` / `ZHIYUAN_EMBEDDING_BACKEND` | `native` (default, direct SDK) or `langchain`; both implementations behave identically |
+| `ZHIYUAN_RERANK_BACKEND` | `keyword` (default, local) or `model` (cross-encoder) |
+| `ZHIYUAN_RERANK_BASE_URL` / `API_KEY` / `MODEL` | All three required when `model` is selected; uses generic `POST {BASE_URL}/rerank` |
+| `ZHIYUAN_VISION_MODEL` / `ZHIYUAN_VISION_MAX_PAGES` | Vision model for image pages (defaults to the LLM model; must accept image input) / per-document recognition cap |
 | `ZHIYUAN_JWT_SECRET` | Signing key; change in production |
 
 Langfuse and Redis are optional. Empty Langfuse → structlog only; with Langfuse keys set and the LangChain LLM backend enabled, the whole RAG chain is traced automatically. Redis down → queries skip cache.
@@ -303,11 +313,11 @@ Admins cannot target other admins or the owner. Owner cannot be deleted or demot
 app/
   api/            Auth, Q&A, documents, conversations, admin users
   auth/           JWT, passwords, FastAPI dependencies
-  ingestion/      Parsers, chunker, pipeline
+  ingestion/      Parsers, chunker, page images, pipeline
   rag/            Orchestration, prompts
   retrieval/      Vector search, keyword rerank, LangChain Retriever
   storage/        Postgres models, Qdrant client
-  llm/            OpenAI-compatible chat client
+  llm/            OpenAI-compatible chat and vision clients
   embedding/      OpenAI-compatible embedding client
 frontend/         Vue 3 SPA
 scripts/          Dev launchers

@@ -131,6 +131,45 @@ def test_parse_docx(tmp_path: Path):
     assert "第二段内容" in result.pages[0]
 
 
+def test_parse_docx_table_order_nested_and_merge(tmp_path: Path):
+    """表格与段落按文档顺序交错；嵌套表提取；合并单元格不重复。"""
+    from docx import Document as DocxDocument
+
+    docx_path = tmp_path / "tables.docx"
+    doc = DocxDocument()
+    doc.add_paragraph("表格前说明")
+    t = doc.add_table(rows=2, cols=2)
+    t.cell(0, 0).text = "项目"
+    t.cell(0, 1).text = "进度"
+    t.cell(1, 0).text = "摄入管线"
+    t.cell(1, 1).text = "已完成"
+    doc.add_paragraph("表格后结论")
+
+    outer = doc.add_table(rows=1, cols=1)
+    outer.cell(0, 0).text = "外层单元格"
+    inner = outer.cell(0, 0).add_table(rows=1, cols=2)
+    inner.cell(0, 0).text = "内A"
+    inner.cell(0, 1).text = "内B"
+
+    merged = doc.add_table(rows=1, cols=3)
+    merged.cell(0, 0).merge(merged.cell(0, 1))
+    merged.cell(0, 0).text = "合并表头"
+    merged.cell(0, 2).text = "备注"
+    doc.save(str(docx_path))
+
+    result = DocumentParser().parse(docx_path)
+    text = result.pages[0]
+
+    # 阅读顺序：段落与表格按文档实际顺序交错
+    assert text.index("表格前说明") < text.index("项目 | 进度") < text.index("表格后结论")
+    # 嵌套表不再静默丢失
+    assert "外层单元格" in text
+    assert "内A | 内B" in text
+    # 合并单元格按底层元素去重
+    assert "合并表头 | 备注" in text
+    assert "合并表头 | 合并表头" not in text
+
+
 def test_parse_xlsx(tmp_path: Path):
     """测试 Excel 解析。"""
     from openpyxl import Workbook
@@ -247,20 +286,21 @@ def test_parse_pdf_extracts_text_and_table(tmp_path: Path):
 
 
 def test_parse_pdf_flags_image_only_pages(tmp_path: Path):
-    """有图无文的页（扫描件）进 image_only_pages，文字页不受影响。"""
+    """有图无文的页（扫描件）进 image_only_pages，页面占位空串保持索引对齐。"""
     pdf_path = tmp_path / "scan.pdf"
     image_draw = "q 200 0 0 200 100 400 cm /Im1 Do Q"
     pdf_path.write_bytes(_build_pdf([_PDF_TEXT_PAGE, image_draw], image_page=1))
 
     result = DocumentParser().parse(pdf_path)
 
-    assert len(result.pages) == 1
+    assert len(result.pages) == 2
     assert "ZhiYuan knowledge base" in result.pages[0]
+    assert result.pages[1] == ""
     assert result.image_only_pages == [2]
 
 
 def test_parse_pptx_flags_picture_only_slide(tmp_path: Path):
-    """只有图片的 PPT 页进 image_only_pages，不再静默消失。"""
+    """只有图片的 PPT 页进 image_only_pages，占位空串保持索引对齐。"""
     from pptx import Presentation
     from pptx.util import Inches
 
@@ -278,5 +318,5 @@ def test_parse_pptx_flags_picture_only_slide(tmp_path: Path):
 
     result = DocumentParser().parse(pptx_path)
 
-    assert result.pages == []
+    assert result.pages == [""]
     assert result.image_only_pages == [1]

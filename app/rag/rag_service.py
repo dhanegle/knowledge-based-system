@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from app.config import settings
 from app.llm.base import LLMClient
 from app.observability.langfuse import get_langchain_callback_handler, trace_span
 from app.rag.prompt_builder import SYSTEM_PROMPT, build_context, build_user_message
@@ -44,7 +45,7 @@ class RAGService:
         chat_model: BaseChatModel | None = None,
     ):
         self._llm = llm_client
-        self._searcher = searcher or VectorSearcher()
+        self._searcher = searcher or VectorSearcher(top_k=settings.retrieval_top_k)
         self._reranker = reranker or get_reranker()
         self._chat_model = chat_model
 
@@ -73,7 +74,7 @@ class RAGService:
 
             return no_context_stream(), []
 
-        reranked = await self._reranker.rerank(question, chunks, top_k=5)
+        reranked = await self._reranker.rerank(question, chunks, top_k=settings.rerank_top_k)
         context = build_context(reranked)
         user_message = build_user_message(question, context)
         sources = self._collect_sources(reranked)
@@ -92,7 +93,7 @@ class RAGService:
         from langchain_core.output_parsers import StrOutputParser
 
         if chunks:
-            reranked = await self._reranker.rerank(question, chunks, top_k=5)
+            reranked = await self._reranker.rerank(question, chunks, top_k=settings.rerank_top_k)
             logger.info("rag_pipeline", retrieved=len(chunks), reranked=len(reranked))
         else:
             logger.info("rag_no_results", question_preview=question[:50])

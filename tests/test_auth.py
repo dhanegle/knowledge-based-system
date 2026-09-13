@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
+import tempfile as _tempfile
+
 from fastapi.testclient import TestClient
 
 from app import main
@@ -28,15 +29,19 @@ def _mock_infra(monkeypatch):
     import app.storage.qdrant as qdrant_mod
     monkeypatch.setattr(qdrant_mod, "_store", fake)
 
-    from app.embedding.base import StubEmbeddingService
     import app.embedding.base as emb_mod
+    from app.embedding.base import StubEmbeddingService
     monkeypatch.setattr(emb_mod, "_embedding_service", StubEmbeddingService(dim=768))
 
     # Use in-memory SQLite, unique per test via random suffix
     import uuid as _uuid
     db_id = _uuid.uuid4().hex
     monkeypatch.setattr(
-        settings, "database_url", f"sqlite+aiosqlite:///file:{db_id}?mode=memory&cache=shared"
+        # 文件型 SQLite（临时目录）：共享内存库在 Windows + aiosqlite 下
+        # 连接回收后会报 "disk I/O error"，改用临时文件保证跨平台稳定。
+        settings,
+        "database_url",
+        f"sqlite+aiosqlite:///{_tempfile.gettempdir().replace(chr(92), '/')}/zy_test_{db_id}.db",
     )
     # Reset engine singleton so new URL takes effect
     import app.storage.session as session_mod

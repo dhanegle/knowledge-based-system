@@ -3,10 +3,11 @@
 支持格式：PDF / Word(.docx) / PPT(.pptx) / Excel(.xlsx) / Markdown / 纯文本 / 代码。
 每种格式用对应的库解析，返回统一的 Document 结构。
 
-表格统一转成 "单元格 | 单元格" 的行文本，保住行内列对应关系。
-PDF 用 pdfplumber：表格按线框识别为结构化行，表格区域的字符从正文剔除
-（否则同一段内容会以乱序文本流和结构化行重复出现）；纯图片页记入
-image_only_pages，如实暴露"扫描件/图片内容未提取"。
+- pages 列表按文档页序对齐：索引 i 恰好是第 i+1 页，纯图片页占位空串，
+  供摄入管线按页码回填视觉识别结果。
+- 表格统一转成 "单元格 | 单元格" 的行文本，保住行内列对应关系。
+- PDF 用 pdfplumber：表格按线框识别为结构化行，表格区域的字符从正文剔除
+  （否则同一段内容会以乱序文本流和结构化行重复出现）。
 """
 
 from __future__ import annotations
@@ -29,8 +30,8 @@ class ParsedDocument:
     """解析后的文档。"""
     filename: str
     file_type: str          # 扩展名，如 ".pdf"
-    pages: list[str]        # 按页分割的文本（PDF/PPT 有页概念；其他格式整篇为 1 页）
-    # 有图无文的页码（1-based，扫描件或纯图片页），文字未提取
+    pages: list[str]        # 按页分割的文本（索引 i = 第 i+1 页；纯图片页为空串）
+    # 纯图片页的页码（1-based，扫描件或纯图片页），文字未提取
     image_only_pages: list[int] = field(default_factory=list)
 
 
@@ -63,8 +64,7 @@ class DocumentParser:
         if ext not in SUPPORTED_EXTENSIONS:
             raise ValueError(f"不支持的文件格式: {ext}（支持: {', '.join(sorted(SUPPORTED_EXTENSIONS))}）")
 
-        text, image_only_pages = self._extract(path, ext)
-        pages = self._split_pages(text, ext)
+        pages, image_only_pages = self._extract(path, ext)
         if image_only_pages:
             logger.warning("%s 含纯图片页（文字未提取）: %s", path.name, image_only_pages)
 
@@ -77,8 +77,8 @@ class DocumentParser:
             image_only_pages=image_only_pages,
         )
 
-    def _extract(self, path: Path, ext: str) -> tuple[str, list[int]]:
-        """提取文本，返回 (全文, 纯图片页码列表)。"""
+    def _extract(self, path: Path, ext: str) -> tuple[list[str], list[int]]:
+        """提取文本，返回 (按页文本列表, 纯图片页码列表)。"""
         extractors = {
             ".pdf": self._extract_pdf,
             ".docx": self._extract_docx,
@@ -88,10 +88,10 @@ class DocumentParser:
         extractor = extractors.get(ext, self._extract_text)
         return extractor(path)
 
-    def _extract_pdf(self, path: Path) -> tuple[str, list[int]]:
+    def _extract_pdf(self, path: Path) -> tuple[list[str], list[int]]:
         import pdfplumber
 
-        parts: list[str] = []
+        pages: list[str] = []
         image_only_pages: list[int] = []
 
         with pdfplumber.open(str(path)) as pdf:
@@ -123,34 +123,73 @@ class DocumentParser:
                         path.name, i, exc_info=True,
                     )
 
-                if not segments:
+                if segments:
+                    pages.append("\n\n".join(segments))
+                else:
                     if page.images:
                         image_only_pages.append(i)
                     logger.warning("%s 第 %d 页无文本（可能是扫描件，需要 OCR）", path.name, i)
-                    continue
-                parts.append(f"--- 第 {i} 页 ---\n" + "\n\n".join(segments))
+                    # 占位空串，保证 pages[i-1] 与页码对齐，供视觉识别回填
+                    pages.append("")
 
-        return "\n\n".join(parts), image_only_pages
+        return pages, image_only_pages
 
-    def _extract_docx(self, path: Path) -> tuple[str, list[int]]:
+    def _extract_docx(self, path: Path) -> tuple[list[str], list[int]]:
         from docx import Document as DocxDocument
+        from docx.table import Table
+        from docx.text.paragraph import Paragraph
 
         doc = DocxDocument(str(path))
         parts: list[str] = []
-        for para in doc.paragraphs:
-            if para.text.strip():
-                parts.append(para.text)
+        # 按文档实际顺序交错输出段落与表格，保住"表和它的上下文说明"相邻
+        for block in doc.iter_inner_content():
+            if isinstance(block, Table):
+                parts.extend(self._render_table(block))
+            elif isinstance(block, Paragraph) and block.text.strip():
+                parts.append(block.text.strip())
+        text = "\n".join(parts)
+        return ([text] if text.strip() else []), []
 
-        for table in doc.tables:
-            parts.extend(self._table_to_lines(table))
-        return "\n".join(parts), []
+    def _render_table(self, table) -> list[str]:
+        """表格转文本行；嵌套表在所属行之后独立成行（递归）。"""
+        lines: list[str] = []
+        for row in table.rows:
+            cells: list[str] = []
+            nested: list[str] = []
+            prev_tc = None
+            for cell in row.cells:
+                # 合并单元格在同一行按其跨的列数重复出现，按底层元素去重
+                if cell._tc is prev_tc:
+                    continue
+                prev_tc = cell._tc
+                inline, cell_nested = self._render_cell(cell)
+                cells.append(inline)
+                nested.extend(cell_nested)
+            row_text = " | ".join(cells)
+            if row_text.strip():
+                lines.append(row_text)
+            lines.extend(nested)
+        return lines
 
-    def _extract_pptx(self, path: Path) -> tuple[str, list[int]]:
+    def _render_cell(self, cell) -> tuple[str, list[str]]:
+        """单元格 → (行内文本, 嵌套表的文本行)。"""
+        from docx.table import Table
+
+        inline: list[str] = []
+        nested: list[str] = []
+        for block in cell.iter_inner_content():
+            if isinstance(block, Table):
+                nested.extend(self._render_table(block))
+            elif block.text.strip():
+                inline.append(block.text.strip())
+        return " ".join(inline), nested
+
+    def _extract_pptx(self, path: Path) -> tuple[list[str], list[int]]:
         from pptx import Presentation
         from pptx.enum.shapes import MSO_SHAPE_TYPE
 
         prs = Presentation(str(path))
-        parts: list[str] = []
+        pages: list[str] = []
         image_only_pages: list[int] = []
         for i, slide in enumerate(prs.slides, 1):
             slide_texts: list[str] = []
@@ -165,13 +204,15 @@ class DocumentParser:
                 if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
                     has_picture = True
             if slide_texts:
-                parts.append(f"--- 第 {i} 页 ---\n" + "\n".join(slide_texts))
-            elif has_picture:
-                image_only_pages.append(i)
-                logger.warning("%s 第 %d 页只有图片，文字未提取", path.name, i)
-        return "\n\n".join(parts), image_only_pages
+                pages.append("\n".join(slide_texts))
+            else:
+                if has_picture:
+                    image_only_pages.append(i)
+                    logger.warning("%s 第 %d 页只有图片，文字未提取", path.name, i)
+                pages.append("")
+        return pages, image_only_pages
 
-    def _extract_xlsx(self, path: Path) -> tuple[str, list[int]]:
+    def _extract_xlsx(self, path: Path) -> tuple[list[str], list[int]]:
         from openpyxl import load_workbook
 
         wb = load_workbook(str(path), read_only=True, data_only=True)
@@ -181,22 +222,13 @@ class DocumentParser:
             if lines:
                 parts.append("\n".join(lines))
         wb.close()
-        return "\n".join(parts), []
+        text = "\n".join(parts)
+        return ([text] if text.strip() else []), []
 
-    def _extract_text(self, path: Path) -> tuple[str, list[int]]:
+    def _extract_text(self, path: Path) -> tuple[list[str], list[int]]:
         """Markdown、纯文本、代码文件统一用 UTF-8 读取。"""
-        return path.read_text(encoding="utf-8", errors="replace"), []
-
-    def _split_pages(self, text: str, ext: str) -> list[str]:
-        """PDF 和 PPT 用 --- 第 N 页 --- 标记分页；其他格式整篇为 1 页。"""
-        if ext in (".pdf", ".pptx"):
-            import re
-            if not text.strip():
-                return []
-            pages = re.split(r"^--- 第 \d+ 页 ---$", text, flags=re.MULTILINE)
-            pages = [p.strip() for p in pages if p.strip()]
-            return pages or [text]
-        return [text] if text.strip() else []
+        text = path.read_text(encoding="utf-8", errors="replace")
+        return ([text] if text.strip() else []), []
 
     @staticmethod
     def _table_to_lines(table) -> list[str]:

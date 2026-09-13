@@ -17,6 +17,7 @@ from qdrant_client.models import (
     FieldCondition,
     Filter,
     MatchValue,
+    PointIdsList,
     PointStruct,
     VectorParams,
 )
@@ -56,6 +57,23 @@ class QdrantStore:
                 ),
             )
             logger.info("创建 Qdrant 集合: %s (dim=%d)", self._collection, self._vector_dim)
+            return
+
+        # 已有集合的维度必须与当前 embedding 配置一致，否则写入会全部失败。
+        info = await self._client.get_collection(collection_name=self._collection)
+        vectors = getattr(getattr(getattr(info, "config", None), "params", None), "vectors", None)
+        size = getattr(vectors, "size", None)
+        if size is None and isinstance(vectors, dict) and len(vectors) == 1:
+            # 兼容 Qdrant 命名向量配置；本项目使用单向量集合。
+            size = getattr(next(iter(vectors.values())), "size", None)
+        if size is not None and size != self._vector_dim:
+            raise ValueError(
+                f"Qdrant 集合维度为 {size}，但配置 embedding_dim={self._vector_dim}"
+            )
+
+    async def health_check(self) -> None:
+        """Verify that the configured collection is reachable and exists."""
+        await self._client.get_collection(collection_name=self._collection)
 
     async def upsert_chunks(
         self,
@@ -73,9 +91,13 @@ class QdrantStore:
             写入的点数
         """
         points = []
+        point_ids: list[str] = []
         for idx, (text, vector, page) in enumerate(chunks):
+            # 文档 ID + chunk 序号构成稳定 ID，重复请求可安全重试并覆盖同一点。
+            point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"zhiyuan:{doc_id}:{idx}"))
+            point_ids.append(point_id)
             points.append(PointStruct(
-                id=str(uuid.uuid4()),
+                id=point_id,
                 vector=vector,
                 payload={
                     "text": text,
@@ -87,7 +109,18 @@ class QdrantStore:
             ))
 
         if points:
-            await self._client.upsert(collection_name=self._collection, points=points)
+            try:
+                await self._client.upsert(collection_name=self._collection, points=points)
+            except Exception:
+                # Qdrant 可能在网络中断前已写入部分点，尽量清掉本批次，允许安全重试。
+                try:
+                    await self._client.delete(
+                        collection_name=self._collection,
+                        points_selector=PointIdsList(points=point_ids),
+                    )
+                except Exception:
+                    logger.exception("清理部分写入的 Qdrant chunks 失败: doc_id=%s", doc_id)
+                raise
         return len(points)
 
     async def search(

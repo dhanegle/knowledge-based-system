@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
+import tempfile as _tempfile
 
 import pytest
 from fastapi.testclient import TestClient
@@ -38,8 +38,8 @@ def _mock_infra(monkeypatch):
     import app.storage.qdrant as qdrant_mod
     monkeypatch.setattr(qdrant_mod, "_store", fake)
 
-    from app.embedding.base import StubEmbeddingService
     import app.embedding.base as emb_mod
+    from app.embedding.base import StubEmbeddingService
     monkeypatch.setattr(emb_mod, "_embedding_service", StubEmbeddingService(dim=768))
 
     return fake
@@ -47,11 +47,14 @@ def _mock_infra(monkeypatch):
 
 def _setup_test_db(monkeypatch):
     import uuid as _uuid
+
     import app.storage.session as session_mod
     session_mod._engine = None
     monkeypatch.setattr(
         settings, "database_url",
-        f"sqlite+aiosqlite:///file:{_uuid.uuid4().hex}?mode=memory&cache=shared",
+        # 文件型 SQLite（临时目录）：共享内存库在 Windows + aiosqlite 下
+        # 连接回收后会报 "disk I/O error"，改用临时文件保证跨平台稳定。
+        f"sqlite+aiosqlite:///{_tempfile.gettempdir().replace(chr(92), '/')}/zy_test_{_uuid.uuid4().hex}.db",
     )
 
 

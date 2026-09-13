@@ -16,6 +16,7 @@ wheels/
 
 # AI 工具会话数据
 .claude/
+.workbuddy-ai/
 
 # Stray dev artifacts
 file

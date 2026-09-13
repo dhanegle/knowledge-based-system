@@ -31,6 +31,7 @@ dependencies = [
     "langfuse>=3,<4",
     "langchain>=1,<2",
     "pdfplumber>=0.11.10",
+    "pillow>=12.3.0",
 ]
 
 [dependency-groups]

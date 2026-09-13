@@ -6,7 +6,7 @@ import json
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sse_starlette.sse import EventSourceResponse
 
@@ -24,18 +24,20 @@ logger = logging.getLogger(__name__)
 
 @router.get("/ask")
 async def ask(
-    q: str,
     request: Request,
+    q: str = Query(..., min_length=1, max_length=8_000),
     current_user: User = Depends(get_current_user),
-    doc_ids: str | None = None,
-    conversation_id: str | None = None,
+    doc_ids: str | None = Query(None, max_length=4_096),
+    conversation_id: str | None = Query(None, min_length=1, max_length=36),
 ):
     """流式问答端点（RAG）。
 
     通过 SSE 把 LLM 回答逐块推送。流式完成后自动保存消息到对话历史。
     如果 conversation_id 为 None，自动创建新对话。
     """
-    doc_id_list = [d.strip() for d in doc_ids.split(",")] if doc_ids else None
+    doc_id_list = [d.strip() for d in doc_ids.split(",") if d.strip()] if doc_ids else None
+    if doc_id_list and len(doc_id_list) > 100:
+        raise HTTPException(status_code=422, detail="一次最多选择 100 个文档")
 
     # 校验传入的 conversation_id 归属当前用户，防止越权写入他人对话
     if conversation_id:
