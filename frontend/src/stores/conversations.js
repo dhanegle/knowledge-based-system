@@ -15,6 +15,8 @@ export const useConversationStore = defineStore('conversations', () => {
   const streaming = ref(false)
   // 每个对话独立的消息缓存，切换对话不互相覆盖
   const messagesMap = ref({})
+  // 当前流式请求的取消句柄和身份，避免旧请求结束时覆盖新状态
+  let activeRequest = null
 
   // 当前对话的消息（computed，随 currentId 切换）
   const messages = computed(() => messagesMap.value[currentId.value] || [])
@@ -50,6 +52,9 @@ export const useConversationStore = defineStore('conversations', () => {
   }
 
   async function removeConversation(id) {
+    if (id === currentId.value) {
+      cancelActiveRequest()
+    }
     await apiDeleteConv(id)
     conversations.value = conversations.value.filter(c => c.id !== id)
     delete messagesMap.value[id]
@@ -58,10 +63,16 @@ export const useConversationStore = defineStore('conversations', () => {
     }
   }
 
-  function clearCurrent() {
-    if (streaming.value) {
-      streaming.value = false
+  function cancelActiveRequest() {
+    if (activeRequest) {
+      activeRequest.controller.abort()
+      activeRequest = null
     }
+    streaming.value = false
+  }
+
+  function clearCurrent() {
+    cancelActiveRequest()
     currentId.value = null
     messagesMap.value = {}
   }
@@ -84,7 +95,9 @@ export const useConversationStore = defineStore('conversations', () => {
     convMessages.push(aiMsg)
 
     streaming.value = true
-    const previousConv = convId
+    const controller = new AbortController()
+    const request = { convId, controller }
+    activeRequest = request
 
     try {
       const token = getToken()
@@ -92,45 +105,85 @@ export const useConversationStore = defineStore('conversations', () => {
       const url = `/api/ask?q=${encodeURIComponent(question)}${convParam}`
       const resp = await fetch(url, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
+        signal: controller.signal,
       })
+
+      if (!resp.ok) {
+        let errorMessage = `请求失败（${resp.status}）`
+        try {
+          const raw = await resp.text()
+          if (raw) {
+            try {
+              const payload = JSON.parse(raw)
+              errorMessage = payload.detail || payload.error || errorMessage
+            } catch {
+              errorMessage = raw.slice(0, 500)
+            }
+          }
+        } catch {
+          // 保留状态码作为错误信息
+        }
+        aiMsg.error = errorMessage
+        return
+      }
+
+      if (!resp.body) {
+        aiMsg.error = '服务器未返回流式响应'
+        return
+      }
 
       const reader = resp.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
 
+      const consumeEvent = (line) => {
+        if (!line.startsWith('data:')) return
+        const data = line.slice(5).trim()
+        if (!data) return
+        try {
+          const parsed = JSON.parse(data)
+          if (parsed.sources) {
+            aiMsg.sources = parsed.sources
+          } else if (parsed.text) {
+            aiMsg.content += parsed.text
+          } else if (parsed.ok === false || parsed.error) {
+            aiMsg.error = parsed.error || '请求失败'
+          }
+        } catch {
+          // 非 JSON，跳过
+        }
+      }
+
       while (true) {
         const { done, value } = await reader.read()
-        if (done) break
+        if (done) {
+          buffer += decoder.decode()
+          break
+        }
         buffer += decoder.decode(value, { stream: true })
 
         const lines = buffer.split('\n')
         buffer = lines.pop()
 
         for (const line of lines) {
-          if (line.startsWith('data:')) {
-            const data = line.slice(5).trim()
-            if (!data) continue
-            try {
-              const parsed = JSON.parse(data)
-              if (parsed.sources) {
-                aiMsg.sources = parsed.sources
-              } else if (parsed.text) {
-                aiMsg.content += parsed.text
-              } else if (parsed.ok === false) {
-                aiMsg.error = parsed.error || '请求失败'
-              }
-            } catch {
-              // 非 JSON，跳过
-            }
-          }
+          consumeEvent(line)
         }
       }
+      if (buffer) consumeEvent(buffer)
       // 流式完成后刷新对话列表（标题/时间可能更新）
-      await fetchConversations()
-    } catch {
-      aiMsg.error = '网络错误，请稍后重试'
+      try {
+        await fetchConversations()
+      } catch {
+        // 对话内容已完成，列表刷新失败不覆盖回答
+      }
+    } catch (error) {
+      if (controller.signal.aborted || error?.name === 'AbortError') return
+      aiMsg.error = error?.message || '网络错误，请稍后重试'
     } finally {
-      streaming.value = false
+      if (activeRequest === request) {
+        activeRequest = null
+        streaming.value = false
+      }
     }
   }
 
@@ -145,6 +198,7 @@ export const useConversationStore = defineStore('conversations', () => {
     createNew,
     removeConversation,
     clearCurrent,
+    cancelActiveRequest,
     ask,
   }
 })

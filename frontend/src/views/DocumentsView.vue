@@ -1,109 +1,134 @@
 <template>
-  <div class="flex flex-col h-full">
-    <!-- 顶栏 -->
-    <div class="px-6 py-4 border-b border-gray-200 bg-white flex items-center justify-between">
+  <div class="flex h-full flex-col">
+    <!-- 页头 -->
+    <header class="page-head">
       <div>
-        <h2 class="text-lg font-semibold text-gray-800">文档管理</h2>
-        <p class="text-sm text-gray-500">{{ auth.isAdmin ? '上传、管理和查看知识库文档' : '查看知识库文档（只读）' }}</p>
+        <h2 class="page-title">文档管理</h2>
+        <p class="page-sub">
+          {{ auth.isAdmin ? '上传、管理与查看知识库文档' : '查看知识库文档（只读）' }}
+        </p>
       </div>
-      <button
-        @click="refresh"
-        class="px-4 py-2 text-sm text-zhiyuan-600 hover:bg-zhiyuan-50 rounded-lg transition flex items-center gap-1.5"
-      >
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+      <button class="btn btn-md btn-outline" :disabled="loading" @click="refresh">
+        <svg class="h-3.5 w-3.5" :class="loading && 'animate-spin'" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M20 11a8 8 0 10-2.3 5.7M20 5v6h-6" />
         </svg>
         刷新
       </button>
-    </div>
+    </header>
 
-    <div class="flex-1 overflow-y-auto p-6">
-      <!-- 上传区（仅管理员可见） -->
-      <div
-        v-if="auth.isAdmin"
-        class="mb-6 border-2 border-dashed rounded-xl p-8 text-center transition-colors"
-        :class="dragOver ? 'border-zhiyuan-500 bg-zhiyuan-50' : 'border-gray-300'"
-        @dragover.prevent="dragOver = true"
-        @dragleave.prevent="dragOver = false"
-        @drop.prevent="handleDrop"
-      >
-        <input ref="fileInput" type="file" class="hidden" accept=".pdf,.docx,.pptx,.xlsx,.md,.txt,.py,.js,.ts,.go,.java,.rs" multiple @change="handleFileSelect" />
-        <svg class="w-12 h-12 mx-auto mb-3 text-zhiyuan-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-        </svg>
-        <p class="text-gray-600 mb-2">拖放文件到此处，或</p>
-        <button @click="$refs.fileInput.click()" class="text-zhiyuan-600 hover:underline font-medium">
-          点击选择文件
-        </button>
-        <p class="text-xs text-gray-400 mt-2">支持 PDF / Word / PPT / Excel / Markdown / 代码文件</p>
-
-        <!-- 上传中 -->
-        <div v-if="uploading" class="mt-4">
-          <div class="inline-flex items-center gap-2 text-zhiyuan-600 text-sm">
-            <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+    <div class="min-h-0 flex-1 overflow-y-auto">
+      <div class="mx-auto max-w-4xl px-8 py-6">
+        <!-- 上传区 -->
+        <div
+          v-if="auth.isAdmin"
+          class="mb-6 rounded-lg border border-dashed transition-colors duration-150"
+          :class="dragOver ? 'border-seal-400 bg-seal-50/50' : 'border-ink-300 bg-white/60'"
+          @dragover.prevent="dragOver = true"
+          @dragleave.prevent="dragOver = false"
+          @drop.prevent="handleDrop"
+        >
+          <input
+            ref="fileInput"
+            type="file"
+            class="hidden"
+            accept=".pdf,.docx,.pptx,.xlsx,.md,.txt,.py,.js,.ts,.go,.java,.rs"
+            multiple
+            @change="handleFileSelect"
+          />
+          <div class="flex flex-col items-center px-6 py-8 text-center">
+            <svg class="h-5 w-5 text-ink-400" fill="none" stroke="currentColor" stroke-width="1.4" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
             </svg>
-            正在上传并摄入...
+            <p class="mt-3 text-[13.5px] text-ink-700">
+              拖放文件到此处，或
+              <button class="font-medium text-seal-700 underline underline-offset-2 hover:text-seal-800" @click="fileInput.click()">
+                选择文件
+              </button>
+            </p>
+            <p class="mt-1.5 text-[12px] text-ink-400">
+              支持 PDF / Word / PPT / Excel / Markdown / 代码文件
+            </p>
+
+            <div v-if="uploading" class="mt-4 flex items-center gap-2 text-[12.5px] text-ink-600">
+              <svg class="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" />
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              正在上传并摄入…
+            </div>
           </div>
         </div>
-      </div>
 
-      <!-- 文档列表 -->
-      <div v-if="docs.length === 0 && !loading" class="text-center text-gray-400 py-12">
-        {{ auth.isAdmin ? '暂无文档，上传第一个文档开始使用知识库' : '暂无文档' }}
-      </div>
+        <!-- 统计行 -->
+        <div v-if="docs.length" class="mb-2 flex items-baseline justify-between px-1">
+          <span class="caps">文档 · {{ docs.length }}</span>
+          <span class="text-[11.5px] tabular-nums text-ink-400">
+            {{ indexedCount }} 已入库
+          </span>
+        </div>
 
-      <div v-else class="space-y-3">
-        <div
-          v-for="doc in docs"
-          :key="doc.id"
-          class="bg-white border border-gray-200 rounded-xl p-4 flex items-center gap-4 hover:border-zhiyuan-300 transition"
-        >
-          <!-- 文件图标 -->
-          <div class="w-10 h-10 flex items-center justify-center rounded-lg flex-shrink-0"
-            :class="fileIconClass(doc.file_type)">
-            <span class="text-xs font-bold uppercase">{{ doc.file_type?.replace('.', '') || '?' }}</span>
-          </div>
+        <!-- 空态 -->
+        <div v-if="docs.length === 0 && !loading" class="flex flex-col items-center py-20 text-center">
+          <svg class="h-5 w-5 text-ink-300" fill="none" stroke="currentColor" stroke-width="1.4" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 3h6l4 4v12a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2h2zm5 1.5V8h3.5" />
+          </svg>
+          <p class="mt-3 text-[13.5px] text-ink-600">
+            {{ auth.isAdmin ? '暂无文档，上传第一个文档开始使用知识库' : '暂无文档' }}
+          </p>
+        </div>
 
-          <!-- 文件信息 -->
-          <div class="flex-1 min-w-0">
-            <p class="font-medium text-gray-800 truncate">{{ doc.filename }}</p>
-            <div class="flex items-center gap-3 text-xs text-gray-500 mt-1">
-              <span>{{ formatSize(doc.file_size) }}</span>
-              <span>{{ doc.chunk_count }} chunks</span>
-              <span>{{ formatDate(doc.created_at) }}</span>
+        <!-- 列表 -->
+        <div v-else class="card divide-y divide-ink-200/70 overflow-hidden">
+          <div
+            v-for="doc in docs"
+            :key="doc.id"
+            class="flex items-center gap-4 px-4 py-3.5 transition-colors hover:bg-ink-50/70"
+          >
+            <!-- 类型 -->
+            <div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded border border-ink-200 bg-ink-50 font-mono text-[10px] uppercase tracking-wide text-ink-500">
+              {{ extLabel(doc.file_type) }}
             </div>
-            <!-- 状态标签 -->
-            <span class="inline-flex items-center mt-1.5 px-2 py-0.5 text-xs rounded-full"
-              :class="statusClass(doc.status)">
+
+            <!-- 信息 -->
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-[14px] font-medium text-ink-900">{{ doc.filename }}</p>
+              <div class="mt-1 flex items-center gap-2.5 text-[11.5px] text-ink-400">
+                <span class="tabular-nums">{{ formatSize(doc.file_size) }}</span>
+                <span class="h-3 w-px bg-ink-200"></span>
+                <span class="tabular-nums">{{ doc.chunk_count }} 分块</span>
+                <span class="h-3 w-px bg-ink-200"></span>
+                <span class="tabular-nums">{{ formatDate(doc.created_at) }}</span>
+              </div>
+              <p v-if="doc.error" class="mt-1.5 text-[12px] leading-snug text-seal-700">{{ doc.error }}</p>
+              <p v-else-if="doc.extraction_notes" class="mt-1.5 text-[12px] leading-snug text-ink-500">
+                {{ doc.extraction_notes }}
+              </p>
+            </div>
+
+            <!-- 状态 -->
+            <span class="inline-flex flex-shrink-0 items-center gap-1.5 rounded-full border px-2 py-[3px] text-[11px]" :class="statusStyle(doc.status)">
+              <span class="h-1.5 w-1.5 rounded-full bg-current"></span>
               {{ statusLabel(doc.status) }}
             </span>
-            <!-- 错误信息 -->
-            <p v-if="doc.error" class="text-xs text-red-500 mt-1">{{ doc.error }}</p>
-          </div>
 
-          <!-- 操作（仅管理员可见） -->
-          <div v-if="auth.isAdmin" class="flex items-center gap-2 flex-shrink-0">
-            <button
-              v-if="doc.status === 'failed' || doc.status === 'indexed'"
-              @click="handleReingest(doc)"
-              class="p-2 text-gray-400 hover:text-zhiyuan-600 hover:bg-zhiyuan-50 rounded-lg transition"
-              title="重新摄入"
-            >
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            </button>
-            <button
-              @click="handleDelete(doc)"
-              class="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
-              title="删除"
-            >
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-            </button>
+            <!-- 操作 -->
+            <div v-if="auth.isAdmin" class="flex flex-shrink-0 items-center gap-0.5">
+              <button
+                v-if="doc.status === 'failed' || doc.status === 'indexed'"
+                class="btn btn-icon btn-ghost"
+                title="重新摄入"
+                @click="handleReingest(doc)"
+              >
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M20 11a8 8 0 10-2.3 5.7M20 5v6h-6" />
+                </svg>
+              </button>
+              <button class="btn btn-icon btn-danger" title="删除" @click="handleDelete(doc)">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 7h14M10 7V5h4v2M8 7l.7 12.1a1 1 0 001 .9h4.6a1 1 0 001-.9L16 7" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -123,13 +148,13 @@ const dragOver = ref(false)
 const fileInput = ref(null)
 let pollTimer = null
 
-// 直接用 store 的响应式数据，避免本地 ref 复制导致的同步问题
 const docs = computed(() => store.documents)
 const loading = computed(() => store.loading)
+const indexedCount = computed(() => docs.value.filter(d => d.status === 'indexed').length)
 
 onMounted(async () => {
   await store.fetchDocuments()
-  // 自动轮询：如果有非终态文档则持续刷新
+  // 有非终态文档或正在上传时轮询刷新
   pollTimer = setInterval(async () => {
     const hasPending = docs.value.some(d =>
       ['pending', 'parsing', 'chunking', 'embedding'].includes(d.status)
@@ -210,41 +235,30 @@ function formatSize(bytes) {
 function formatDate(iso) {
   if (!iso) return '-'
   const d = new Date(iso)
-  return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
+  const pad = (n) => n.toString().padStart(2, '0')
+  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-function fileIconClass(ext) {
-  const classes = {
-    '.pdf': 'bg-red-100 text-red-600',
-    '.docx': 'bg-blue-100 text-blue-600',
-    '.pptx': 'bg-orange-100 text-orange-600',
-    '.xlsx': 'bg-green-100 text-green-600',
-    '.md': 'bg-purple-100 text-purple-600',
-  }
-  return classes[ext] || 'bg-gray-100 text-gray-600'
+function extLabel(ext) {
+  return (ext || '?').replace('.', '').slice(0, 4) || '?'
 }
 
-function statusClass(status) {
-  const classes = {
-    indexed: 'bg-green-100 text-green-700',
-    pending: 'bg-yellow-100 text-yellow-700',
-    parsing: 'bg-blue-100 text-blue-700',
-    chunking: 'bg-blue-100 text-blue-700',
-    embedding: 'bg-indigo-100 text-indigo-700',
-    failed: 'bg-red-100 text-red-700',
-  }
-  return classes[status] || 'bg-gray-100 text-gray-600'
+function statusStyle(status) {
+  return {
+    indexed: 'border-moss-200 bg-moss-50 text-moss-700',
+    failed: 'border-seal-200 bg-seal-50 text-seal-700',
+    pending: 'border-sand-200 bg-sand-50 text-sand-700',
+  }[status] || 'border-ink-200 bg-ink-50 text-ink-600'
 }
 
 function statusLabel(status) {
-  const labels = {
+  return {
     pending: '等待中',
     parsing: '解析中',
     chunking: '分块中',
     embedding: '向量化中',
     indexed: '已入库',
     failed: '失败',
-  }
-  return labels[status] || status
+  }[status] || status
 }
 </script>

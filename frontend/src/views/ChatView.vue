@@ -1,84 +1,146 @@
 <template>
-  <div class="flex flex-col h-full">
-    <!-- 顶栏 -->
-    <div class="px-6 py-4 border-b border-gray-200 bg-white flex items-center justify-between">
+  <div class="flex h-full flex-col">
+    <!-- 页头 -->
+    <header class="page-head">
       <div>
-        <h2 class="text-lg font-semibold text-gray-800">对话问答</h2>
-        <p class="text-sm text-gray-500">基于知识库的 RAG 问答，回答附带引用来源</p>
+        <h2 class="page-title">对话问答</h2>
+        <p class="page-sub">基于知识库检索作答，回答附带引用来源</p>
       </div>
-      <button
-        @click="handleNewConversation"
-        class="px-4 py-2 text-sm bg-zhiyuan-600 text-white rounded-lg hover:bg-zhiyuan-700 transition flex items-center gap-1.5"
-      >
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+      <button class="btn btn-md btn-outline" @click="handleNewConversation">
+        <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+          <path stroke-linecap="round" d="M12 5v14M5 12h14" />
         </svg>
         新对话
       </button>
-    </div>
+    </header>
 
-    <!-- 消息列表 -->
-    <div ref="messagesEl" class="flex-1 overflow-y-auto px-6 py-6 space-y-6">
-      <div v-if="store.messages.length === 0" class="text-center text-gray-400 mt-20">
-        <svg class="w-16 h-16 mx-auto mb-4 text-zhiyuan-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-        </svg>
-        <p>输入问题开始对话</p>
-      </div>
-
-      <div v-for="(msg, i) in store.messages" :key="i" class="space-y-2">
-        <!-- 用户消息 -->
-        <div v-if="msg.role === 'user'" class="flex justify-end">
-          <div class="max-w-2xl px-4 py-3 bg-zhiyuan-600 text-white rounded-2xl rounded-br-sm">
-            {{ msg.content }}
+    <!-- 消息区 -->
+    <div ref="messagesEl" class="min-h-0 flex-1 overflow-y-auto">
+      <div class="mx-auto max-w-3xl px-8 py-8">
+        <!-- 空态 -->
+        <div v-if="store.messages.length === 0" class="flex flex-col items-center pb-16 pt-24 text-center">
+          <div class="flex h-12 w-12 items-center justify-center rounded-lg border border-ink-200 bg-white">
+            <svg class="h-5 w-5 text-ink-300" fill="none" stroke="currentColor" stroke-width="1.4" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h8M8 14h5M5 19h14a1 1 0 001-1V7a2 2 0 00-2-2H6a2 2 0 00-2 2v10l1 2z" />
+            </svg>
           </div>
+          <p class="mt-4 font-serif text-[16px] text-ink-800">开始一次提问</p>
+          <p class="mt-1.5 max-w-xs text-[13px] leading-relaxed text-ink-500">
+            回答仅依据已上传的文档生成，若知识库中没有相关内容会如实告知。
+          </p>
         </div>
 
-        <!-- AI 消息 -->
-        <div v-else class="flex justify-start">
-          <div class="max-w-2xl">
-            <!-- 回答内容 -->
-            <div class="inline-block px-4 py-3 bg-white border border-gray-200 rounded-2xl rounded-bl-sm">
-              <!-- 思考动画 -->
-              <div v-if="store.streaming && !msg.content && !msg.error" class="flex items-center gap-2 py-1">
-                <div class="flex gap-1">
-                  <span class="w-2 h-2 bg-zhiyuan-400 rounded-full animate-bounce" style="animation-delay: 0ms"></span>
-                  <span class="w-2 h-2 bg-zhiyuan-400 rounded-full animate-bounce" style="animation-delay: 150ms"></span>
-                  <span class="w-2 h-2 bg-zhiyuan-400 rounded-full animate-bounce" style="animation-delay: 300ms"></span>
-                </div>
-                <span class="text-sm text-gray-400">思考中...</span>
+        <!-- 消息列表 -->
+        <div v-else class="space-y-7">
+          <template v-for="(msg, i) in store.messages" :key="i">
+            <!-- 用户 -->
+            <div v-if="msg.role === 'user'" class="flex justify-end">
+              <div class="max-w-[85%] whitespace-pre-wrap rounded-lg rounded-br-sm bg-ink-100 px-4 py-2.5 text-[15px] leading-relaxed text-ink-900">
+                {{ msg.content }}
               </div>
-              <!-- Markdown 渲染的回答 -->
-              <div
-                v-else-if="msg.content"
-                class="prose-chat text-gray-800"
-              >
-                <span v-html="renderMarkdown(msg.content)"></span><span v-if="store.streaming && i === store.messages.length - 1" class="inline-block w-0.5 h-4 bg-zhiyuan-500 animate-pulse align-middle ml-0.5"></span>
-              </div>
-              <p v-else-if="msg.error" class="text-red-500 text-sm">{{ msg.error }}</p>
             </div>
-          </div>
+
+            <!-- 助手 -->
+            <div v-else class="flex gap-3.5">
+              <div class="mt-0.5 flex h-6 w-6 flex-shrink-0 select-none items-center justify-center rounded border border-ink-200 bg-white font-serif text-[11px] text-ink-500">
+                知
+              </div>
+
+              <div class="min-w-0 flex-1">
+                <!-- 检索中 -->
+                <div v-if="store.streaming && !msg.content && !msg.error" class="flex items-center gap-2 pt-0.5">
+                  <span class="flex gap-1">
+                    <span class="h-1.5 w-1.5 animate-breathe rounded-full bg-ink-400"></span>
+                    <span class="h-1.5 w-1.5 animate-breathe rounded-full bg-ink-400" style="animation-delay: 200ms"></span>
+                    <span class="h-1.5 w-1.5 animate-breathe rounded-full bg-ink-400" style="animation-delay: 400ms"></span>
+                  </span>
+                  <span class="text-[13px] text-ink-400">检索并组织回答…</span>
+                </div>
+
+                <!-- 正文 -->
+                <div v-else-if="msg.content" class="prose-chat">
+                  <span v-html="renderMarkdown(msg.content)"></span><span
+                    v-if="store.streaming && i === store.messages.length - 1"
+                    class="ml-0.5 inline-block h-[15px] w-[2px] translate-y-[3px] animate-pulse bg-seal-500"
+                  ></span>
+                </div>
+
+                <!-- 错误 -->
+                <p v-if="msg.error" class="mt-1 flex items-start gap-1.5 text-[13px] text-seal-700">
+                  <svg class="mt-0.5 h-3.5 w-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v5m0 3h.01M10.3 3.9L2.4 17.5A2 2 0 004.1 20.5h15.8a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" />
+                  </svg>
+                  {{ msg.error }}
+                </p>
+
+                <!-- 引用来源 -->
+                <div v-if="msg.sources?.length" class="mt-4 border-t border-ink-200/80 pt-3">
+                  <p class="caps mb-2">引用来源 · {{ msg.sources.length }}</p>
+                  <div class="grid gap-1.5 sm:grid-cols-2">
+                    <div
+                      v-for="(s, si) in msg.sources"
+                      :key="si"
+                      class="rounded-md border border-ink-200/80 bg-white px-3 py-2 transition-colors hover:border-ink-300"
+                      :title="s.text_preview"
+                    >
+                      <div class="flex items-baseline gap-2">
+                        <span class="font-mono text-[10px] tabular-nums text-ink-400">{{ si + 1 }}</span>
+                        <span class="truncate text-[12.5px] font-medium text-ink-800">{{ s.filename }}</span>
+                      </div>
+                      <div class="mt-1 flex items-center gap-2 text-[11px] text-ink-400">
+                        <span>第 {{ s.page }} 页</span>
+                        <span class="h-3 w-px bg-ink-200"></span>
+                        <span class="tabular-nums">匹配 {{ s.score.toFixed(2) }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
     </div>
 
-    <!-- 输入框 -->
-    <div class="px-6 py-4 border-t border-gray-200 bg-white">
-      <form @submit.prevent="handleAsk" class="flex gap-3">
-        <input
-          v-model="question"
-          type="text"
-          :disabled="store.streaming"
-          placeholder="输入你的问题..."
-          class="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-zhiyuan-500 focus:border-transparent outline-none transition disabled:bg-gray-100"
-        />
-        <button
-          type="submit"
-          :disabled="store.streaming || !question.trim()"
-          class="px-6 py-3 bg-zhiyuan-600 text-white rounded-xl hover:bg-zhiyuan-700 disabled:opacity-50 transition font-medium"
-        >
-          {{ store.streaming ? '回答中...' : '发送' }}
-        </button>
+    <!-- 输入区 -->
+    <div class="border-t border-ink-200/80 bg-paper px-8 py-4">
+      <form class="mx-auto max-w-3xl" @submit.prevent="handleAsk">
+        <div class="flex items-end gap-2 rounded-lg border border-ink-200 bg-white p-1.5 shadow-hairline transition-colors focus-within:border-ink-400 focus-within:ring-2 focus-within:ring-ink-900/[0.06]">
+          <textarea
+            ref="questionEl"
+            v-model="question"
+            rows="1"
+            :disabled="store.streaming"
+            placeholder="输入你的问题…"
+            class="max-h-40 flex-1 resize-none border-0 bg-transparent px-2.5 py-2 text-[15px] leading-relaxed text-ink-900 outline-none placeholder:text-ink-400 focus-visible:ring-0 disabled:opacity-60"
+            @keydown="onKeydown"
+            @input="autoGrow"
+          ></textarea>
+
+          <button
+            v-if="store.streaming"
+            type="button"
+            class="btn btn-sm btn-outline flex-shrink-0"
+            @click="store.cancelActiveRequest()"
+          >
+            <span class="h-2 w-2 rounded-[1px] bg-ink-500"></span>
+            停止
+          </button>
+          <button
+            v-else
+            type="submit"
+            class="btn btn-sm btn-primary h-9 flex-shrink-0 px-3.5"
+            :disabled="!question.trim()"
+          >
+            发送
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h13m0 0l-5-5m5 5l-5 5" />
+            </svg>
+          </button>
+        </div>
+        <p class="mt-2 text-center text-[11.5px] text-ink-400">
+          Enter 发送 · Shift + Enter 换行
+        </p>
       </form>
     </div>
   </div>
@@ -87,23 +149,21 @@
 <script setup>
 import { ref, nextTick, onMounted, watch } from 'vue'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import { useConversationStore } from '../stores/conversations'
 
 const store = useConversationStore()
 const question = ref('')
+const questionEl = ref(null)
 const messagesEl = ref(null)
 
-// 配置 marked：关闭 mangle，简化输出
-marked.setOptions({
-  breaks: true,
-  gfm: true,
-})
+marked.setOptions({ breaks: true, gfm: true })
 
 function renderMarkdown(text) {
   try {
-    return marked.parse(text)
+    return DOMPurify.sanitize(marked.parse(text), { USE_PROFILES: { html: true } })
   } catch {
-    return text
+    return DOMPurify.sanitize(text, { USE_PROFILES: { html: true } })
   }
 }
 
@@ -115,36 +175,45 @@ function scrollToBottom() {
   })
 }
 
+// 输入框随内容增高，上限由 max-h 控制
+function autoGrow() {
+  const el = questionEl.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, 160)}px`
+}
+
+function onKeydown(e) {
+  // isComposing：中文输入法选词时的回车不应触发发送
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    e.preventDefault()
+    handleAsk()
+  }
+}
+
+function resetComposer() {
+  question.value = ''
+  nextTick(() => {
+    if (questionEl.value) questionEl.value.style.height = 'auto'
+  })
+}
+
 onMounted(async () => {
-  // 只在 store 为空时才加载对话列表（首次进入）
-  // 切页面回来时不重新加载，避免覆盖正在流式 / 已加载的消息
   if (store.conversations.length === 0) {
     await store.fetchConversations()
   }
-  // 仅当没有选中对话且不在流式中时，才选第一个对话
   if (!store.currentId && !store.streaming && store.conversations.length > 0) {
     await store.selectConversation(store.conversations[0].id)
   }
   scrollToBottom()
 })
 
-// 流式期间消息增长时自动滚到底部
-watch(() => store.messages.length, () => {
-  scrollToBottom()
-})
+watch(() => store.messages.length, scrollToBottom)
 watch(
   () => store.messages.at(-1)?.content,
-  () => {
-    if (store.streaming) scrollToBottom()
-  }
+  () => { if (store.streaming) scrollToBottom() }
 )
-// 切换对话时滚到底部
-watch(
-  () => store.currentId,
-  () => {
-    scrollToBottom()
-  }
-)
+watch(() => store.currentId, scrollToBottom)
 
 async function handleNewConversation() {
   await store.createNew()
@@ -154,83 +223,8 @@ async function handleNewConversation() {
 async function handleAsk() {
   const q = question.value.trim()
   if (!q || store.streaming) return
-  question.value = ''
+  resetComposer()
   scrollToBottom()
-  // 发送后让 store 在后台流式接收，组件不阻塞
   store.ask(q)
 }
 </script>
-
-<style>
-/* Markdown 渲染样式 */
-.prose-chat {
-  line-height: 1.7;
-}
-.prose-chat p {
-  margin: 0.5em 0;
-}
-.prose-chat h1, .prose-chat h2, .prose-chat h3, .prose-chat h4 {
-  font-weight: 600;
-  margin: 0.8em 0 0.4em;
-  line-height: 1.3;
-}
-.prose-chat h1 { font-size: 1.3em; }
-.prose-chat h2 { font-size: 1.2em; }
-.prose-chat h3 { font-size: 1.1em; }
-.prose-chat h4 { font-size: 1em; }
-.prose-chat ul, .prose-chat ol {
-  margin: 0.4em 0;
-  padding-left: 1.5em;
-}
-.prose-chat li {
-  margin: 0.2em 0;
-}
-.prose-chat ul li {
-  list-style: disc;
-}
-.prose-chat ol li {
-  list-style: decimal;
-}
-.prose-chat strong {
-  font-weight: 600;
-}
-.prose-chat code {
-  background: #f3f4f6;
-  padding: 0.1em 0.3em;
-  border-radius: 3px;
-  font-size: 0.9em;
-  font-family: monospace;
-}
-.prose-chat pre {
-  background: #1e293b;
-  color: #e2e8f0;
-  padding: 0.8em;
-  border-radius: 6px;
-  overflow-x: auto;
-  margin: 0.5em 0;
-}
-.prose-chat pre code {
-  background: none;
-  padding: 0;
-  color: inherit;
-}
-.prose-chat blockquote {
-  border-left: 3px solid #93c5fd;
-  padding-left: 0.8em;
-  margin: 0.5em 0;
-  color: #6b7280;
-}
-.prose-chat table {
-  border-collapse: collapse;
-  margin: 0.5em 0;
-}
-.prose-chat th, .prose-chat td {
-  border: 1px solid #e5e7eb;
-  padding: 0.4em 0.7em;
-  text-align: left;
-}
-.prose-chat th {
-  background: #f9fafb;
-  font-weight: 600;
-}
-</style>

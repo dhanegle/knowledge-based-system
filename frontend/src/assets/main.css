@@ -2,20 +2,117 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-gray-50 text-gray-900;
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-paper text-ink-900;
+  }
+
+  ::selection {
+    @apply bg-seal-100 text-seal-900;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-seal-400/40;
+  }
+
+  /* 细滚动条：内容区用，避免粗条破坏留白 */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: rgba(32, 30, 25, 0.14);
+    border: 3px solid transparent;
+    border-radius: 9999px;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(32, 30, 25, 0.26);
+    background-clip: content-box;
+  }
 }
 
-/* 自定义滚动条 */
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-track {
-  @apply bg-transparent;
-}
-::-webkit-scrollbar-thumb {
-  @apply bg-zhiyuan-200 rounded-full;
-}
-::-webkit-scrollbar-thumb:hover {
-  @apply bg-zhiyuan-400;
+@layer components {
+  /* ── 按钮 ───────────────────────────────────────── */
+  .btn {
+    @apply inline-flex select-none items-center justify-center gap-2 rounded-md text-[13px]
+           font-medium transition-colors duration-150
+           disabled:cursor-not-allowed disabled:opacity-45;
+  }
+  .btn-sm { @apply h-8 px-3; }
+  .btn-md { @apply h-9 px-3.5; }
+  .btn-primary { @apply bg-ink-900 text-ink-50 hover:bg-ink-800 active:bg-ink-950; }
+  .btn-outline {
+    @apply border border-ink-200 bg-white text-ink-700
+           hover:border-ink-300 hover:bg-ink-50 active:bg-ink-100;
+  }
+  .btn-ghost { @apply text-ink-500 hover:bg-ink-100 hover:text-ink-800; }
+  .btn-danger { @apply text-ink-400 hover:bg-seal-50 hover:text-seal-700; }
+  .btn-icon { @apply h-8 w-8 p-0; }
+
+  /* ── 表单 ───────────────────────────────────────── */
+  .input {
+    @apply w-full rounded-md border border-ink-200 bg-white px-3 py-2 text-[14px] text-ink-900
+           transition-colors duration-150 placeholder:text-ink-400
+           focus:border-ink-400 focus:outline-none focus:ring-2 focus:ring-ink-900/[0.06];
+  }
+
+  /* ── 容器 ───────────────────────────────────────── */
+  .card { @apply rounded-lg border border-ink-200/80 bg-white; }
+
+  /* 小号全大写标签，用于分区标题 */
+  .caps { @apply text-[11px] font-medium uppercase tracking-caps text-ink-400; }
+
+  /* 极细分隔线 */
+  .hairline { @apply bg-ink-200/80; }
+
+  /* 页头：统一各页顶部节奏 */
+  .page-head {
+    @apply flex items-center justify-between border-b border-ink-200/80 bg-paper/85
+           px-8 py-4 backdrop-blur-sm;
+  }
+  .page-title { @apply font-serif text-[17px] leading-tight text-ink-900; }
+  .page-sub { @apply mt-0.5 text-[13px] text-ink-500; }
+
+  /* ── Markdown 正文 ──────────────────────────────── */
+  .prose-chat { @apply text-[15px] leading-[1.75] text-ink-800; }
+  .prose-chat > *:first-child { margin-top: 0; }
+  .prose-chat > *:last-child { margin-bottom: 0; }
+  .prose-chat p { @apply my-2.5; }
+  .prose-chat h1,
+  .prose-chat h2,
+  .prose-chat h3,
+  .prose-chat h4 { @apply mb-2 mt-5 font-semibold leading-snug text-ink-900; }
+  .prose-chat h1 { @apply text-[17px]; }
+  .prose-chat h2 { @apply text-[16px]; }
+  .prose-chat h3 { @apply text-[15px]; }
+  .prose-chat ul,
+  .prose-chat ol { @apply my-2.5 space-y-1 pl-5; }
+  .prose-chat ul { @apply list-disc; }
+  .prose-chat ol { @apply list-decimal; }
+  .prose-chat li::marker { @apply text-ink-400; }
+  .prose-chat strong { @apply font-semibold text-ink-900; }
+  .prose-chat a { @apply text-seal-700 underline underline-offset-2; }
+  .prose-chat code {
+    @apply rounded bg-ink-100 px-1.5 py-0.5 font-mono text-[13px] text-ink-800;
+  }
+  .prose-chat pre { @apply my-3 overflow-x-auto rounded-md bg-ink-950 p-3.5; }
+  .prose-chat pre code { @apply bg-transparent p-0 text-[13px] leading-relaxed text-ink-100; }
+  .prose-chat blockquote {
+    @apply my-3 border-l-2 border-ink-300 pl-3.5 text-ink-600;
+  }
+  .prose-chat table { @apply my-3 w-full border-collapse text-[14px]; }
+  .prose-chat th,
+  .prose-chat td { @apply border border-ink-200 px-3 py-1.5 text-left; }
+  .prose-chat th { @apply bg-ink-50 font-medium text-ink-700; }
+  .prose-chat hr { @apply my-4 border-ink-200; }
 }

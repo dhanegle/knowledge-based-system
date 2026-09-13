@@ -16,8 +16,15 @@ if (-not (Test-Path .env)) {
 }
 
 # ── 3. 启动后端 (新窗口) ──
-Write-Host "==> 启动后端 http://localhost:8000" -ForegroundColor Cyan
-Start-Process powershell -ArgumentList '-NoExit','-Command','uv run uvicorn app.main:app --reload --port 8000'
+# 后端端口优先取 .env 中的 ZHIYUAN_PORT，缺省 8000
+$BackendPort = "8000"
+$EnvLine = Select-String -Path .env -Pattern '^ZHIYUAN_PORT=' | Select-Object -Last 1
+if ($EnvLine) {
+  $Parsed = ($EnvLine.Line -split '=', 2)[1].Trim()
+  if ($Parsed) { $BackendPort = $Parsed }
+}
+Write-Host "==> 启动后端 http://localhost:$BackendPort" -ForegroundColor Cyan
+Start-Process powershell -ArgumentList '-NoExit','-Command',"uv run uvicorn app.main:app --reload --port $BackendPort"
 
 # ── 4. 启动前端 (新窗口) ──
 Write-Host "==> 启动前端 http://localhost:5173" -ForegroundColor Cyan
@@ -25,5 +32,5 @@ Start-Process powershell -ArgumentList '-NoExit','-Command','cd frontend; npm ru
 
 Write-Host ""
 Write-Host "  前端: http://localhost:5173" -ForegroundColor Green
-Write-Host "  后端: http://localhost:8000/docs" -ForegroundColor Green
+Write-Host "  后端: http://localhost:$BackendPort/docs" -ForegroundColor Green
 Write-Host "  后端和前端分别运行在两个新窗口中，关闭窗口即停止对应服务" -ForegroundColor Gray

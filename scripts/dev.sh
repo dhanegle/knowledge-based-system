@@ -9,7 +9,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-BACKEND_PORT=8000
+# 后端端口优先取 .env 中的 ZHIYUAN_PORT，缺省 8000；可用环境变量覆盖
+BACKEND_PORT="${ZHIYUAN_PORT:-}"
+if [ -z "${BACKEND_PORT}" ] && [ -f .env ]; then
+  BACKEND_PORT="$(grep -E '^ZHIYUAN_PORT=' .env | tail -n1 | cut -d= -f2 | tr -d '[:space:]')"
+fi
+BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_PORT=5173
 
 # ── 1. 启动基础设施 ──
